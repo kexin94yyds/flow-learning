@@ -271,14 +271,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // 初始化
   loadItems();
 
-  // 订阅实时更新
-  if (window.webAPI.subscribe) {
-    window.webAPI.subscribe((newItems) => {
-      console.log('Received real-time update');
-      allItems = newItems;
-      const activeBtn = document.querySelector('.filter-btn.active');
-      const filter = activeBtn ? activeBtn.dataset.filter : 'all';
-      renderGrid(filter === 'all' ? allItems : allItems.filter(item => item.platform === filter));
+  // 初始化 API
+  // web-api.js 会自动检测环境并设置 window.webAPI
+  // 我们只需要调用 subscribe 来监听数据更新
+  if (window.webAPI && window.webAPI.subscribe) {
+    window.webAPI.subscribe((items) => {
+      console.log('Received items update:', items);
+      allItems = items;
+      renderGrid(items);
+    });
+
+    // 主动获取一次数据
+    window.webAPI.getItems().then(items => {
+      if (items && items.length > 0) {
+        allItems = items;
+        renderGrid(items);
+      }
     });
   }
 

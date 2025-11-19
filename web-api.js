@@ -235,7 +235,12 @@ const peerAPI = {
   },
 
   subscribe: (callback) => {
+    console.log('Subscribing to data updates');
     peerAPI.dataCallback = callback;
+    // If we already have a connection, ask for data again just in case
+    if (peerAPI.conn && peerAPI.conn.open) {
+      peerAPI.conn.send({ type: 'get-items' });
+    }
   }
 };
 
