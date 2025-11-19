@@ -127,72 +127,73 @@ document.addEventListener('DOMContentLoaded', () => {
     addModal.classList.remove('show');
   });
 
-  // 导出功能
-  exportBtn.addEventListener('click', async () => {
-    const items = await window.webAPI.getItems();
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `info-filter-backup-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
+  // 导出功能 (仅在有此按钮时绑定)
+  if (exportBtn) {
+    exportBtn.addEventListener('click', async () => {
+      const items = await window.webAPI.getItems();
+      const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `info-filter-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
 
   // 导入功能
-  importBtn.addEventListener('click', () => {
-    importFile.click();
-  });
+  if (importBtn && importFile) {
+    importBtn.addEventListener('click', () => {
+      importFile.click();
+    });
+  }
 
-  importFile.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  if (importFile) {
+    importFile.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const importedItems = JSON.parse(e.target.result);
-        if (!Array.isArray(importedItems)) {
-          alert('文件格式错误：必须是 JSON 数组');
-          return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const importedItems = JSON.parse(e.target.result);
+          if (!Array.isArray(importedItems)) {
+            alert('文件格式错误：必须是 JSON 数组');
+            return;
+          }
+
+          if (confirm(`准备导入 ${importedItems.length} 条数据。是否合并到现有数据中？\n(点击"取消"将放弃导入)`)) {
+            const currentItems = await window.webAPI.getItems();
+            // 合并策略：ID 去重，保留导入的数据优先
+            const map = new Map();
+
+            importedItems.forEach(item => map.set(item.id, item));
+            currentItems.forEach(item => {
+              if (!map.has(item.id)) {
+                map.set(item.id, item);
+              }
+            });
+
+            const mergedItems = Array.from(map.values()).sort((a, b) => {
+              if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+              return new Date(b.createdAt) - new Date(a.createdAt);
+            });
+
+            await window.webAPI.updateItems(mergedItems);
+            loadItems();
+            alert('导入成功！');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('导入失败：无法解析文件');
         }
-
-        if (confirm(`准备导入 ${importedItems.length} 条数据。是否合并到现有数据中？\n(点击"取消"将放弃导入)`)) {
-          const currentItems = await window.webAPI.getItems();
-          // 合并策略：ID 去重，保留导入的数据（或者保留两者中较新的？）
-          // 这里简单处理：保留导入的数据优先，然后是现有的
-          const map = new Map();
-
-          // 先放入导入的
-          importedItems.forEach(item => map.set(item.id, item));
-          // 再放入现有的（如果 ID 已存在则忽略，即保留导入的版本）
-          currentItems.forEach(item => {
-            if (!map.has(item.id)) {
-              map.set(item.id, item);
-            }
-          });
-
-          const mergedItems = Array.from(map.values()).sort((a, b) => {
-            // 保持置顶优先，然后按时间倒序
-            if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-            return new Date(b.createdAt) - new Date(a.createdAt);
-          });
-
-          await window.webAPI.updateItems(mergedItems);
-          loadItems();
-          alert('导入成功！');
-        }
-      } catch (err) {
-        console.error(err);
-        alert('导入失败：无法解析文件');
-      }
-      // 清空 input 允许重复导入同一文件
-      importFile.value = '';
-    };
-    reader.readAsText(file);
-  });
+        importFile.value = '';
+      };
+      reader.readAsText(file);
+    });
+  }
 
   // URL 输入监听
   inputUrl.addEventListener('input', () => {
