@@ -139,6 +139,18 @@ function startLocalServer() {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://${ip.address()}:${PORT}`);
   });
+
+  server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error('Address in use, retrying...');
+      setTimeout(() => {
+        server.close();
+        server.listen(PORT, '0.0.0.0');
+      }, 1000);
+    } else {
+      console.error('Server error:', e);
+    }
+  });
 }
 
 function createMainWindow() {
@@ -171,7 +183,7 @@ function createMainWindow() {
 function createCaptureWindow() {
   captureWindow = new BrowserWindow({
     width: 500,
-    height: 550,
+    height: 650,
     show: false,
     frame: false, // 无边框
     resizable: false,

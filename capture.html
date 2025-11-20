@@ -21,6 +21,14 @@
       border: 1px solid rgba(0, 0, 0, 0.1);
       display: flex;
       flex-direction: column;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
     }
 
     /* 边缘拖拽区域（用于移动无边框窗口） */
@@ -127,12 +135,13 @@
     }
 
     .status-bar {
-      margin-top: auto;
+      margin-top: 12px;
       font-size: 12px;
       color: #6b7280;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-shrink: 0;
     }
 
     .modal-footer {
@@ -140,6 +149,7 @@
       justify-content: space-between;
       align-items: center;
       margin-top: 20px;
+      flex-shrink: 0;
     }
 
     .save-group {
@@ -199,21 +209,23 @@
       <span id="statusText">添加新内容</span>
     </h2>
 
-    <div id="imagePreview"><img src=""></div>
+    <div class="content-area">
+      <div id="imagePreview"><img src=""></div>
 
-    <input type="text" id="url" placeholder="链接 (Cmd+V 或自动读取)" autofocus>
-    <input type="text" id="title" placeholder="标题">
+      <input type="text" id="url" placeholder="链接 (Cmd+V 或自动读取)" autofocus>
+      <input type="text" id="title" placeholder="标题">
 
-    <div style="display: flex; gap: 10px;">
-      <select id="category" style="flex: 1;">
-        <option value="read_later">稍后阅读</option>
-        <option value="learning">学习资料</option>
-        <option value="inspiration">灵感</option>
-        <option value="entertainment">娱乐</option>
-      </select>
+      <div style="display: flex; gap: 10px;">
+        <select id="category" style="flex: 1;">
+          <option value="read_later">稍后阅读</option>
+          <option value="learning">学习资料</option>
+          <option value="inspiration">灵感</option>
+          <option value="entertainment">娱乐</option>
+        </select>
+      </div>
+
+      <textarea id="note" rows="2" placeholder="备注 (可选，Cmd+Enter 换行，Enter 保存)"></textarea>
     </div>
-
-    <textarea id="note" rows="2" placeholder="备注 (可选)"></textarea>
 
     <div class="modal-footer">
       <button id="openDashboardBtn" class="secondary-btn">打开我的收藏库</button>
@@ -286,10 +298,16 @@
 
     // 4. Enter 键保存 (全局监听)
     document.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        // 如果焦点在 textarea，允许换行
-        if (document.activeElement === noteInput) return;
+      // Cmd+Enter 在备注框中换行
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        if (document.activeElement === noteInput) {
+          // 允许换行，不阻止默认行为
+          return;
+        }
+      }
 
+      // Enter 键保存
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault(); // 阻止默认行为
         saveAndClose();
       }

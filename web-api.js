@@ -103,34 +103,52 @@ const webAPI = {
   }
 };
 
-// PeerJS API 适配器 (用于 WebRTC P2P 连接)
-const peerAPI = {
+// 混合模式 API：优先使用 localStorage，可选同步到桌面端
+const hybridAPI = {
   conn: null,
   dataCallback: null,
+  isConnected: false,
+  peer: null,
 
   init: (peerId) => {
     const updateStatus = (status, msg) => {
       const el = document.getElementById('status-bar');
       if (el) {
-        el.style.display = 'block';
         if (status === 'connected') {
+          el.style.display = 'block';
           el.style.background = '#d1fae5';
           el.style.color = '#065f46';
-          el.textContent = '已连接到桌面端';
+          el.textContent = '已连接到桌面端（数据已同步）';
           setTimeout(() => { el.style.display = 'none'; }, 3000);
         } else if (status === 'connecting') {
+          el.style.display = 'block';
           el.style.background = '#fef3c7';
           el.style.color = '#92400e';
           el.textContent = '正在连接桌面端...';
+        } else if (status === 'disconnected') {
+          el.style.display = 'block';
+          el.style.background = '#f3f4f6';
+          el.style.color = '#4b5563';
+          el.textContent = '本地模式（数据已保存到本地）';
+          setTimeout(() => { el.style.display = 'none'; }, 3000);
         } else {
+          el.style.display = 'block';
           el.style.background = '#fee2e2';
           el.style.color = '#991b1b';
-          el.textContent = msg || '连接断开';
+          el.textContent = msg || '连接断开，使用本地数据';
         }
       }
     };
 
-    return new Promise((resolve, reject) => {
+    // 先加载本地数据，确保即使连接失败也能使用
+    webStorage.get('items').then(localItems => {
+      const items = localItems || [];
+      if (hybridAPI.dataCallback && items.length > 0) {
+        hybridAPI.dataCallback(items);
+      }
+    });
+
+    return new Promise((resolve) => {
       updateStatus('connecting');
 
       const peer = new Peer(null, {
@@ -142,84 +160,185 @@ const peerAPI = {
         }
       });
 
+      hybridAPI.peer = peer;
+
       peer.on('open', () => {
         console.log('My Peer ID:', peer.id);
         const conn = peer.connect(peerId, {
           reliable: true
         });
 
-        conn.on('open', () => {
+        conn.on('open', async () => {
           console.log('Connected to Desktop App');
-          peerAPI.conn = conn;
+          hybridAPI.conn = conn;
+          hybridAPI.isConnected = true;
           updateStatus('connected');
 
-          // 请求初始数据
-          conn.send({ type: 'get-items' });
+          // 立即请求桌面端数据（延迟一下确保连接稳定）
+          setTimeout(() => {
+            if (hybridAPI.conn && hybridAPI.conn.open) {
+              console.log('Requesting items from desktop...');
+              hybridAPI.conn.send({ type: 'get-items' });
+            }
+          }, 300);
+          
+          // 同时发送本地数据到桌面端（如果本地有数据）
+          const localItems = await webStorage.get('items') || [];
+          if (localItems.length > 0) {
+            // 延迟一下，确保连接稳定
+            setTimeout(() => {
+              if (hybridAPI.conn && hybridAPI.conn.open) {
+                console.log('Sending local items to desktop:', localItems.length);
+                hybridAPI.conn.send({ type: 'update-items', items: localItems });
+              }
+            }, 800);
+          }
+          
           resolve(true);
         });
 
-        conn.on('data', (data) => {
-          console.log('Received data:', data);
-          if (data.type === 'items-updated' && peerAPI.dataCallback) {
-            peerAPI.dataCallback(data.items);
+        conn.on('data', async (data) => {
+          console.log('Received data from desktop:', data);
+          if (data.type === 'items-updated') {
+            // 同步桌面端数据到本地
+            const desktopItems = data.items || [];
+            
+            // 合并策略：智能合并
+            const localItems = await webStorage.get('items') || [];
+            
+            if (desktopItems.length > 0) {
+              // 如果桌面端有数据，优先使用桌面端数据（作为主数据源）
+              // 但保留本地新增但桌面端没有的数据（通过 ID 判断）
+              const desktopIds = new Set(desktopItems.map(item => item.id));
+              const localOnlyItems = localItems.filter(item => !desktopIds.has(item.id));
+              
+              // 合并：桌面端数据 + 本地独有的数据
+              const mergedItems = [...desktopItems, ...localOnlyItems].sort((a, b) => {
+                // 置顶的优先
+                if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+                // 按创建时间排序
+                return new Date(b.createdAt) - new Date(a.createdAt);
+              });
+              
+              console.log('Syncing desktop data to local:', mergedItems.length, 'items');
+              await webStorage.set('items', mergedItems);
+              
+              // 立即触发回调更新 UI
+              if (hybridAPI.dataCallback) {
+                hybridAPI.dataCallback(mergedItems);
+              }
+            } else if (localItems.length > 0) {
+              // 如果桌面端没有数据，但本地有，同步本地数据到桌面端
+              console.log('Syncing local data to desktop:', localItems.length, 'items');
+              if (hybridAPI.conn && hybridAPI.conn.open) {
+                hybridAPI.conn.send({ type: 'update-items', items: localItems });
+              }
+            }
           }
         });
 
         conn.on('close', () => {
-          updateStatus('disconnected', '连接已断开，请刷新页面重试');
-          peerAPI.conn = null;
+          updateStatus('disconnected');
+          hybridAPI.conn = null;
+          hybridAPI.isConnected = false;
         });
 
         conn.on('error', (err) => {
           console.error('Connection error:', err);
-          updateStatus('error', '连接错误');
-          reject(err);
+          updateStatus('disconnected');
+          hybridAPI.isConnected = false;
+          resolve(false); // 连接失败但不阻止使用
         });
       });
 
       peer.on('error', (err) => {
         console.error('Peer error:', err);
-        updateStatus('error', `连接失败: ${err.type}`);
-        reject(err);
+        updateStatus('disconnected');
+        hybridAPI.isConnected = false;
+        resolve(false); // 连接失败但不阻止使用
       });
+
+      // 超时处理：5秒后如果还没连接，回退到本地模式
+      setTimeout(() => {
+        if (!hybridAPI.isConnected) {
+          updateStatus('disconnected');
+          resolve(false);
+        }
+      }, 5000);
     });
   },
 
   getItems: async () => {
-    if (peerAPI.conn) {
-      peerAPI.conn.send({ type: 'get-items' });
-      // 这里是个异步问题，简单起见我们等待回调更新，或者返回空数组等待推送
-      return [];
+    // 优先返回本地数据
+    const localItems = await webStorage.get('items') || [];
+    
+    // 如果已连接，也请求桌面端数据（异步合并）
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      hybridAPI.conn.send({ type: 'get-items' });
     }
-    return [];
+    
+    return localItems;
   },
 
   saveItem: async (item) => {
-    if (peerAPI.conn) {
-      peerAPI.conn.send({ type: 'save-item', item });
+    // 先保存到本地
+    const items = await webStorage.get('items') || [];
+    items.unshift(item);
+    await webStorage.set('items', items);
+    
+    // 如果已连接，同步到桌面端
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      hybridAPI.conn.send({ type: 'save-item', item });
     }
-    return []; // 乐观更新或等待推送
-  },
-
-  deleteItem: async (id) => {
-    if (peerAPI.conn) {
-      peerAPI.conn.send({ type: 'delete-item', id });
-    }
-    return [];
-  },
-
-  updateItems: async (items) => {
-    if (peerAPI.conn) {
-      peerAPI.conn.send({ type: 'update-items', items });
-    }
+    
     return items;
   },
 
-  togglePin: async (id) => {
-    if (peerAPI.conn) {
-      peerAPI.conn.send({ type: 'toggle-pin', id });
+  deleteItem: async (id) => {
+    // 先删除本地数据
+    const items = await webStorage.get('items') || [];
+    const newItems = items.filter(i => i.id !== id);
+    await webStorage.set('items', newItems);
+    
+    // 如果已连接，同步到桌面端
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      hybridAPI.conn.send({ type: 'delete-item', id });
     }
-    return [];
+    
+    return newItems;
+  },
+
+  updateItems: async (newItems) => {
+    // 先更新本地数据
+    await webStorage.set('items', newItems);
+    
+    // 如果已连接，同步到桌面端
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      hybridAPI.conn.send({ type: 'update-items', items: newItems });
+    }
+    
+    return newItems;
+  },
+
+  togglePin: async (id) => {
+    // 先更新本地数据
+    const items = await webStorage.get('items') || [];
+    const index = items.findIndex(i => i.id === id);
+    if (index !== -1) {
+      items[index].pinned = !items[index].pinned;
+      items.sort((a, b) => {
+        if (a.pinned === b.pinned) return 0;
+        return a.pinned ? -1 : 1;
+      });
+      await webStorage.set('items', items);
+    }
+    
+    // 如果已连接，同步到桌面端
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      hybridAPI.conn.send({ type: 'toggle-pin', id });
+    }
+    
+    return items;
   },
 
   readClipboard: async () => {
@@ -231,16 +350,24 @@ const peerAPI = {
   },
 
   fetchMetadata: async (url) => {
-    // 可以请求桌面端帮忙抓取，解决跨域问题
-    return { title: '', image: '' };
+    // 使用 webAPI 的 fetchMetadata（通过代理）
+    return await webAPI.fetchMetadata(url);
   },
 
   subscribe: (callback) => {
     console.log('Subscribing to data updates');
-    peerAPI.dataCallback = callback;
-    // If we already have a connection, ask for data again just in case
-    if (peerAPI.conn && peerAPI.conn.open) {
-      peerAPI.conn.send({ type: 'get-items' });
+    hybridAPI.dataCallback = callback;
+    
+    // 立即返回本地数据
+    webStorage.get('items').then(items => {
+      if (items && items.length > 0) {
+        callback(items);
+      }
+    });
+    
+    // 如果已连接，请求桌面端数据
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      hybridAPI.conn.send({ type: 'get-items' });
     }
   }
 };
@@ -286,21 +413,39 @@ const peerAPI = {
     const peerId = urlParams.get('peer');
 
     if (peerId) {
-      console.log('Connecting via PeerJS to:', peerId);
-      window.webAPI = peerAPI;
-      peerAPI.init(peerId).catch(err => {
-        console.error('Peer init failed:', err);
-        alert(`连接失败: ${err.type || err.message || err}\n请检查桌面端是否在线，或尝试刷新页面。`);
+      // 混合模式：优先使用本地存储，可选同步到桌面端
+      console.log('Running in Hybrid Mode - Connecting to desktop:', peerId);
+      window.webAPI = hybridAPI;
+      
+      // 异步初始化连接（不阻塞页面使用）
+      hybridAPI.init(peerId).then(connected => {
+        if (connected) {
+          console.log('Desktop sync enabled');
+        } else {
+          console.log('Using local storage only');
+        }
+      }).catch(err => {
+        console.error('Connection attempt failed, using local storage:', err);
       });
     } else {
-      // 默认本地模式
-      console.log('Running in Standalone Web Mode');
+      // 默认本地模式（完全独立）
+      console.log('Running in Standalone Web Mode (Local Storage)');
       window.webAPI = {
         ...webAPI,
         subscribe: (callback) => {
+          // 立即返回本地数据
+          webStorage.get('items').then(items => {
+            if (items) callback(items);
+          });
+          
+          // 监听 storage 事件（跨标签页同步）
           window.addEventListener('storage', (e) => {
             if (e.key === 'items') {
-              callback(JSON.parse(e.newValue));
+              try {
+                callback(JSON.parse(e.newValue));
+              } catch (err) {
+                console.error('Failed to parse storage data:', err);
+              }
             }
           });
         }

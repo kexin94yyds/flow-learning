@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let allItems = [];
   let currentImage = '';
   let debounceTimer;
+  let sortableInstance;
 
   // 确保 webAPI 已加载
   if (!window.webAPI) {
@@ -26,12 +27,20 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  function getActiveFilter() {
+    const activeBtn = document.querySelector('.filter-btn.active');
+    return activeBtn ? activeBtn.dataset.filter : 'all';
+  }
+
+  function getFilteredItems(items = allItems) {
+    const filter = getActiveFilter();
+    return filter === 'all' ? items : items.filter(item => item.platform === filter);
+  }
+
   // 加载数据
   async function loadItems() {
     allItems = await window.webAPI.getItems();
-    const activeBtn = document.querySelector('.filter-btn.active');
-    const filter = activeBtn ? activeBtn.dataset.filter : 'all';
-    renderGrid(filter === 'all' ? allItems : allItems.filter(item => item.platform === filter));
+    renderGrid(getFilteredItems(allItems));
   }
 
   // 渲染网格
@@ -90,6 +99,66 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     });
+
+    initSortable();
+  }
+
+  function initSortable() {
+    if (!window.Sortable || !grid) return;
+
+    if (sortableInstance) {
+      sortableInstance.destroy();
+    }
+
+    const cards = grid.querySelectorAll('.card');
+    if (!cards.length) return;
+
+    sortableInstance = new Sortable(grid, {
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      dragClass: 'sortable-drag',
+      draggable: '.card',
+      delay: 80,
+      filter: '.delete-btn, .pin-icon, a',
+      preventOnFilter: false,
+      onEnd: async () => {
+        const orderedIds = Array.from(grid.querySelectorAll('.card')).map(card => card.dataset.id);
+        if (!orderedIds.length) return;
+
+        const activeFilter = getActiveFilter();
+        const orderedIdSet = new Set(orderedIds);
+        const reorderedVisible = orderedIds
+          .map(id => allItems.find(item => item.id === id))
+          .filter(Boolean);
+
+        let nextAllItems;
+        if (activeFilter === 'all') {
+          const missingItems = allItems.filter(item => !orderedIdSet.has(item.id));
+          nextAllItems = [...reorderedVisible, ...missingItems];
+        } else {
+          const visibleQueue = [...reorderedVisible];
+          nextAllItems = allItems.map(item => {
+            if (orderedIdSet.has(item.id)) {
+              const nextItem = visibleQueue.shift();
+              return nextItem || item;
+            }
+            return item;
+          });
+        }
+
+        allItems = nextAllItems;
+
+        if (activeFilter !== 'all') {
+          renderGrid(getFilteredItems(allItems));
+        }
+
+        try {
+          await window.webAPI.updateItems(allItems);
+        } catch (err) {
+          console.error('更新排序失败', err);
+        }
+      }
+    });
   }
 
   // 过滤事件
@@ -97,8 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.classList.contains('filter-btn')) {
       document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
       e.target.classList.add('active');
-      const filter = e.target.dataset.filter;
-      renderGrid(filter === 'all' ? allItems : allItems.filter(item => item.platform === filter));
+      renderGrid(getFilteredItems(allItems));
     }
   });
 
@@ -107,6 +175,12 @@ document.addEventListener('DOMContentLoaded', () => {
     addModal.classList.add('show');
     currentImage = '';
     imagePreview.style.display = 'none';
+    
+    // 重置表单
+    inputUrl.value = '';
+    inputTitle.value = '';
+    inputNote.value = '';
+    inputTitle.placeholder = '输入标题...';
 
     // 尝试读取剪贴板
     try {
@@ -119,12 +193,21 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log('无法读取剪贴板，请手动粘贴');
     }
 
+    // 聚焦并选中 URL 输入框（方便直接替换）
     inputUrl.focus();
+    inputUrl.select();
   });
 
   // 关闭弹窗
   cancelAddBtn.addEventListener('click', () => {
     addModal.classList.remove('show');
+    // 重置表单
+    inputUrl.value = '';
+    inputTitle.value = '';
+    inputNote.value = '';
+    imagePreview.style.display = 'none';
+    currentImage = '';
+    inputTitle.placeholder = '输入标题...';
   });
 
   // 导出功能 (仅在有此按钮时绑定)
@@ -195,34 +278,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // URL 输入监听
+  // URL 输入监听（自动抓取元数据）
   if (inputUrl) {
     inputUrl.addEventListener('input', () => {
       const url = inputUrl.value.trim();
-      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-        // 简单的防抖
-        if (window.fetchMetadataTimer) clearTimeout(window.fetchMetadataTimer);
-        window.fetchMetadataTimer = setTimeout(async () => {
-          const metadata = await window.webAPI.fetchMetadata(url);
-          if (metadata.title && !inputTitle.value) {
-            inputTitle.value = metadata.title;
-          }
-          if (metadata.image) {
-            imagePreview.querySelector('img').src = metadata.image;
-            imagePreview.style.display = 'block';
-          }
-        }, 1000);
+      if (!url) {
+        imagePreview.style.display = 'none';
+        return;
       }
+      
+      // 防抖处理，与桌面端一致（500ms）
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (url.startsWith('http') || url.startsWith('www')) {
+          fetchMetadata(url);
+        }
+      }, 500);
     });
   }
 
-  // 抓取元数据
+  // 抓取元数据（与桌面端功能一致）
   async function fetchMetadata(url) {
-    if (!url.startsWith('http')) return;
-    inputTitle.placeholder = '正在获取标题...';
+    if (!url.startsWith('http') && !url.startsWith('www')) return;
+    
+    // 显示加载状态
+    inputTitle.placeholder = '正在获取信息...';
+    
     try {
       const data = await window.webAPI.fetchMetadata(url);
-      if (data.title) inputTitle.value = data.title;
+      if (data.title) {
+        inputTitle.value = data.title;
+      }
       if (data.image) {
         currentImage = data.image;
         imagePreview.style.display = 'block';
@@ -230,15 +316,17 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         imagePreview.style.display = 'none';
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
+      // 成功提示（可选，可以通过 placeholder 显示）
       inputTitle.placeholder = '输入标题...';
+    } catch (e) {
+      console.error('获取元数据失败:', e);
+      inputTitle.placeholder = '输入标题...';
+      imagePreview.style.display = 'none';
     }
   }
 
-  // 确认添加
-  confirmAddBtn.addEventListener('click', async () => {
+  // 保存并关闭弹窗
+  async function saveAndClose() {
     if (!inputUrl.value) return;
 
     const newItem = {
@@ -254,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     allItems = await window.webAPI.saveItem(newItem);
-    renderGrid(allItems);
+    renderGrid(getFilteredItems(allItems));
     addModal.classList.remove('show');
 
     // 清空表单
@@ -262,6 +350,35 @@ document.addEventListener('DOMContentLoaded', () => {
     inputTitle.value = '';
     inputNote.value = '';
     imagePreview.style.display = 'none';
+    currentImage = '';
+  }
+
+  // 确认添加
+  confirmAddBtn.addEventListener('click', saveAndClose);
+
+  // 键盘事件处理（与桌面端一致）
+  document.addEventListener('keydown', async (e) => {
+    // 只在弹窗显示时处理
+    if (!addModal.classList.contains('show')) return;
+
+    // Cmd+Enter 或 Ctrl+Enter 在备注框中换行
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      if (document.activeElement === inputNote) {
+        // 允许换行，不阻止默认行为
+        return;
+      }
+    }
+
+    // Enter 键保存
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      saveAndClose();
+    }
+
+    // Escape 键关闭弹窗
+    if (e.key === 'Escape') {
+      addModal.classList.remove('show');
+    }
   });
 
   function getPlatform(url) {
@@ -291,18 +408,27 @@ document.addEventListener('DOMContentLoaded', () => {
   if (window.webAPI && window.webAPI.subscribe) {
     window.webAPI.subscribe((items) => {
       console.log('Received items update:', items);
-      allItems = items;
-      renderGrid(items);
-    });
-
-    // 主动获取一次数据
-    window.webAPI.getItems().then(items => {
-      if (items && items.length > 0) {
+      if (items && Array.isArray(items)) {
         allItems = items;
-        renderGrid(items);
+        renderGrid(getFilteredItems(items));
       }
     });
   }
+
+  // 主动获取一次数据（确保页面加载时显示数据，即使没有连接也能工作）
+  setTimeout(async () => {
+    if (window.webAPI && window.webAPI.getItems) {
+      try {
+        const items = await window.webAPI.getItems();
+        if (items && Array.isArray(items)) {
+          allItems = items;
+          renderGrid(getFilteredItems(items));
+        }
+      } catch (e) {
+        console.error('Failed to load items:', e);
+      }
+    }
+  }, 100);
 
   // 检查网络连接状态（仅在非 Electron 环境下）
   if (!window.electron) {
@@ -319,4 +445,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 });
-
