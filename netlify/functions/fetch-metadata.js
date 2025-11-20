@@ -21,16 +21,21 @@ exports.handler = async (event) => {
 };
 
 async function fetchMetadata(url) {
-  // Special handling for Twitter/X to improve success rate:
-  // 尽量拿到推文里的图片，而不是只看到通用的 "X / ?" 标题。
+  // 尝试使用 Twitter 的公开嵌入接口（如果是推文链接）
   if (isTwitterUrl(url)) {
-    const twitterData = await fetchTwitterMetadata(url).catch(() => null);
-    if (twitterData && (twitterData.title || twitterData.image)) {
-      return twitterData;
+    const twitterMeta = await fetchTwitterMetadata(url).catch(() => null);
+    if (twitterMeta && (twitterMeta.title || twitterMeta.image)) {
+      return twitterMeta;
     }
+
+    // 如果上面的 JSON 接口失败，再退回到 “桌面端同款” 的 HTML 抓取逻辑
+    return await fetchWithUserAgent(
+      url,
+      'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'
+    );
   }
 
-  // Default desktop-like behaviour: 抓 og:title / og:image
+  // 普通网页：和桌面端一样，用桌面浏览器 UA 抓 og:title / og:image
   return await fetchWithUserAgent(
     url,
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
@@ -50,8 +55,8 @@ async function fetchTwitterMetadata(url) {
   const tweetId = parseTweetId(url);
   if (!tweetId) return null;
 
-  // 使用 Twitter 公开的 syndication 接口拿到更完整的信息
   const apiUrl = `https://cdn.syndication.twimg.com/tweet?id=${tweetId}`;
+
   const res = await fetch(apiUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0',
@@ -78,7 +83,7 @@ async function fetchTwitterMetadata(url) {
       '';
   }
 
-  // 如果推文本身没图，就退回到头像
+  // 如果推文本身没有图片，就用头像兜底
   if (!image && data.user) {
     image =
       data.user.profile_image_url_https ||

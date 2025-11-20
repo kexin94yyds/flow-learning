@@ -153,6 +153,7 @@ const hybridAPI = {
   dataCallback: null,
   isConnected: false,
   peer: null,
+  pendingMetadataRequests: {},
 
   init: (peerId) => {
     const updateStatus = (status, msg) => {
@@ -236,6 +237,12 @@ const hybridAPI = {
               if (hybridAPI.dataCallback) {
                 hybridAPI.dataCallback(desktopItems);
               }
+            }
+          } else if (data.type === 'metadata-result') {
+            const handler = hybridAPI.pendingMetadataRequests[data.requestId];
+            if (handler) {
+              handler(data.metadata || { title: '', image: '' });
+              delete hybridAPI.pendingMetadataRequests[data.requestId];
             }
           }
         });
@@ -353,8 +360,50 @@ const hybridAPI = {
   },
 
   fetchMetadata: async (url) => {
-    // 复用 webAPI 的 fetchMetadata（内部已根据环境选择 Netlify 函数 / 本地 API / 代理）
-    return await webAPI.fetchMetadata(url);
+    if (!url) return { title: '', image: '' };
+
+    const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
+
+    // 如果已连接桌面端，优先让桌面端来抓取（与桌面应用完全一致）
+    if (hybridAPI.conn && hybridAPI.conn.open) {
+      const requestId = `m_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+      return await new Promise((resolve) => {
+        const timeout = setTimeout(async () => {
+          delete hybridAPI.pendingMetadataRequests[requestId];
+          // 超时则回退到 Web 自己的逻辑
+          try {
+            const fallback = await webAPI.fetchMetadata(normalizedUrl);
+            resolve(fallback);
+          } catch (_) {
+            resolve({ title: '', image: '' });
+          }
+        }, 8000);
+
+        hybridAPI.pendingMetadataRequests[requestId] = (metadata) => {
+          clearTimeout(timeout);
+          resolve(metadata || { title: '', image: '' });
+        };
+
+        try {
+          hybridAPI.conn.send({
+            type: 'fetch-metadata',
+            requestId,
+            url: normalizedUrl
+          });
+        } catch (err) {
+          clearTimeout(timeout);
+          delete hybridAPI.pendingMetadataRequests[requestId];
+          // 发送失败直接回退
+          webAPI.fetchMetadata(normalizedUrl)
+            .then(resolve)
+            .catch(() => resolve({ title: '', image: '' }));
+        }
+      });
+    }
+
+    // 未连接桌面端时，退回到 Web 自己的抓取（Netlify 函数 / 本地 API / 代理）
+    return await webAPI.fetchMetadata(normalizedUrl);
   },
 
   subscribe: (callback) => {

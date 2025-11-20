@@ -61,6 +61,22 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (data.type === 'toggle-pin') {
           await ipcRenderer.invoke('toggle-pin', data.id);
           broadcastUpdate();
+        } else if (data.type === 'fetch-metadata') {
+          try {
+            const metadata = await ipcRenderer.invoke('fetch-metadata', data.url);
+            conn.send({
+              type: 'metadata-result',
+              requestId: data.requestId,
+              metadata
+            });
+          } catch (err) {
+            conn.send({
+              type: 'metadata-result',
+              requestId: data.requestId,
+              metadata: { title: '', image: '' },
+              error: err ? String(err) : 'metadata fetch failed'
+            });
+          }
         } else if (data.type === 'ping') {
           conn.send({ type: 'pong' });
         }
