@@ -83,6 +83,16 @@
       font-size: 14px;
       -webkit-tap-highlight-color: transparent;
     }
+    
+    #importDesktopBtn {
+      background: #10b981 !important;
+      color: white !important;
+      border: none !important;
+    }
+    
+    #importDesktopBtn:hover {
+      background: #059669 !important;
+    }
 
     .grid {
       display: grid;
@@ -368,8 +378,8 @@
         <button class="filter-btn" data-filter="YouTube">YouTube</button>
         <button class="filter-btn" data-filter="Web">网页</button>
       </div>
-      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%; justify-content: flex-end;">
-        <button id="importDesktopBtn" class="add-btn" style="background: #10b981; font-size: 13px; padding: 10px 16px; font-weight: 500; box-shadow: 0 2px 4px rgba(16,185,129,0.3); white-space: nowrap;">📥 导入桌面数据</button>
+      <div class="header-actions">
+        <button id="importDesktopBtn" class="add-btn" style="background: #10b981 !important; color: white !important; font-size: 13px; padding: 10px 16px; font-weight: 500; box-shadow: 0 2px 4px rgba(16,185,129,0.3); white-space: nowrap; border: none !important;">📥 导入桌面数据</button>
         <button id="showAddModalBtn" class="add-btn">+ 添加</button>
       </div>
     </header>
