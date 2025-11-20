@@ -171,7 +171,7 @@ function createMainWindow() {
 function createCaptureWindow() {
   captureWindow = new BrowserWindow({
     width: 500,
-    height: 450,
+    height: 550,
     show: false,
     frame: false, // 无边框
     resizable: false,
