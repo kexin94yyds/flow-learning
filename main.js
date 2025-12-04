@@ -634,8 +634,10 @@ ipcMain.on('drag-end', () => {
 });
 
 // 执行拖拽
-ipcMain.on('ondragstart', (event, filePath) => {
+ipcMain.on('ondragstart', (event, payload) => {
   try {
+    const filePath = typeof payload === 'string' ? payload : payload?.filePath;
+    const fileName = typeof payload === 'object' ? payload?.fileName : null;
     console.log('[startDrag] 收到拖拽请求:', filePath);
     isDragging = true; // 设置拖拽状态
     if (!captureWindowWasOnTopDuringDrag) {
@@ -655,6 +657,7 @@ ipcMain.on('ondragstart', (event, filePath) => {
       console.log('[startDrag] 开始拖拽文件');
       event.sender.startDrag({
         file: filePath,
+        files: [filePath],
         icon: icon
       });
       console.log('[startDrag] 拖拽启动完成');

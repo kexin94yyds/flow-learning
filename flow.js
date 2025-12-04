@@ -5,9 +5,11 @@
   // 检测是否在 Electron 环境
   const isElectron = typeof require !== 'undefined';
   let ipcRenderer = null;
+  let fs = null;
   if (isElectron) {
     try {
       ipcRenderer = require('electron').ipcRenderer;
+      fs = require('fs');
     } catch (e) {
       // 非 Electron 环境
     }
@@ -564,14 +566,27 @@
             console.log('[DRAG] 设置文件拖拽:', filePath);
             // 通知主进程开始拖拽（防止窗口隐藏）
             ipcRenderer.send('drag-start');
-            // 使用 DownloadURL 格式进行文件拖拽（拖拽到桌面）
             const mimeType = fileName.endsWith('.epub') ? 'application/epub+zip' : 'application/octet-stream';
             const fileUrl = `file://${filePath}`;
             e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.dropEffect = 'copy';
+            // Finder/Desktop 兼容
             e.dataTransfer.setData('DownloadURL', `${mimeType}:${fileName}:${fileUrl}`);
             e.dataTransfer.setData('text/uri-list', fileUrl);
-            // 同时调用 Electron startDrag
-            ipcRenderer.send('ondragstart', filePath);
+            e.dataTransfer.setData('text/plain', fileUrl);
+            // 网页 drop 兼容：注入 File 对象
+            try {
+              if (fs && fs.existsSync(filePath) && e.dataTransfer.items) {
+                const buffer = fs.readFileSync(filePath);
+                const blob = new Blob([buffer], { type: mimeType });
+                const file = new File([blob], fileName, { type: mimeType });
+                e.dataTransfer.items.add(file);
+              }
+            } catch (err) {
+              console.warn('读取文件用于拖拽失败', err);
+            }
+            // 同时调用 Electron startDrag（系统级文件拖拽）
+            ipcRenderer.send('ondragstart', { filePath, fileName });
           } else {
             console.log('[DRAG] 文件未缓存');
           }
