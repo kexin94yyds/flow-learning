@@ -82,6 +82,35 @@
     }
   }
 
+  // 压缩 base64 图片（减少 localStorage 占用）
+  function compressImage(base64, maxWidth = 200, quality = 0.7) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // 按比例缩小
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // 转为 JPEG 减少体积
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(base64); // 失败时返回原图
+      img.src = base64;
+    });
+  }
+
   // 模式配置
   const modeConfig = {
     video: { title: '视频学习', icon: 'video' },
@@ -1434,7 +1463,9 @@
         if (coverFile) {
           const coverData = await coverFile.async('base64');
           const mediaType = coverItem.getAttribute('media-type') || 'image/jpeg';
-          coverImage = `data:${mediaType};base64,${coverData}`;
+          const rawCover = `data:${mediaType};base64,${coverData}`;
+          // 压缩封面图片减少存储占用
+          coverImage = await compressImage(rawCover);
         }
       }
     }
@@ -1555,6 +1586,11 @@
           }
         }
       }
+      
+    // 压缩封面图片减少存储占用
+    if (coverImage) {
+      coverImage = await compressImage(coverImage);
+    }
       
     // 保存临时数据（保留 File 对象用于上传）
     pendingEpubData = {
