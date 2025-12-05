@@ -857,10 +857,25 @@
     const content = flowData.contents[mode]?.find(c => c.id === id);
     if (!content) return;
     
-    // 如果是书籍且有文件，只用 Supabase 链接
+    // 如果是书籍且有文件，使用 Supabase 链接下载（保留原文件名）
     if (mode === 'book' && content.hasEpubFile) {
       if (content.fileUrl) {
-        window.open(content.fileUrl, '_blank');
+        try {
+          showToast('正在下载...');
+          const response = await fetch(content.fileUrl);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = content.fileName || `${content.title}.epub`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          console.error('下载失败:', e);
+          alert('下载失败，请稍后重试');
+        }
         return;
       }
       alert('当前书籍缺少云端链接，请重新上传生成链接');
