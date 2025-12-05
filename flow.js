@@ -1434,19 +1434,26 @@
     
     const contentId = generateId();
     
+    // 上传到 Supabase
+    let fileUrl = '';
+    if (supabaseClient) {
+      fileUrl = await uploadToSupabase(file, 'books', contentId);
+    }
+    
     const content = {
       id: contentId,
       title,
       author,
       image: coverImage,
       fileName: file.name,
-      hasEpubFile: true,
+      hasEpubFile: !!fileUrl,
+      fileUrl: fileUrl,
       url: '',
       note: '',
       createdAt: Date.now()
     };
     
-    // 保存文件到 IndexedDB
+    // 保存文件到 IndexedDB（作为离线备份）
     await saveEpubToDB(contentId, fileData);
     
     flowData.contents[mode].push(content);
