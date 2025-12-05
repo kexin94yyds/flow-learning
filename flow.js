@@ -41,6 +41,14 @@
   const noteCloseBtn = document.getElementById('noteCloseBtn');
   const noteDeleteBtn = document.getElementById('noteDeleteBtn');
 
+  // Supabase 配置（使用 anon key + 公共 bucket）
+  const SUPABASE_URL = 'https://pgnxluovitiwgvzutjuh.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBnbnhsdW92aXRpd2d2enV0anVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM1NTY5MTIsImV4cCI6MjA0OTEzMjkxMn0.IxrJYrUTP_Dk9LSfy5Nt1puNLj2p7dZC_F2GKGxtIHU';
+  const SUPABASE_BUCKET = 'flow-files';
+  const supabaseClient = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
   const contentModal = document.getElementById('contentModal');
   const contentModalClose = document.getElementById('contentModalClose');
   const contentUrlInput = document.getElementById('contentUrlInput');
@@ -188,7 +196,9 @@
         hasEpubFile: item.hasEpubFile,
         hasAudioFile: item.hasAudioFile,
         fileName: item.fileName,
-        fileSize: item.fileSize
+        fileSize: item.fileSize,
+        fileType: item.fileType,
+        fileUrl: item.fileUrl || ''
       });
     }
   }
@@ -226,7 +236,9 @@
           hasEpubFile: content.hasEpubFile,
           hasAudioFile: content.hasAudioFile,
           fileName: content.fileName,
-          fileSize: content.fileSize
+          fileSize: content.fileSize,
+          fileType: content.fileType,
+          fileUrl: content.fileUrl || ''
         });
       }
     }
@@ -844,34 +856,25 @@
     const content = flowData.contents[mode]?.find(c => c.id === id);
     if (!content) return;
     
-    // 如果是书籍且有 EPUB 文件，复制文件路径
+    // 如果是书籍且有文件，直接打开云端链接
     if (mode === 'book' && content.hasEpubFile) {
-      try {
-        const filePath = dragFileCache[id];
-        if (filePath) {
-          // 复制文件路径到剪贴板
-          await navigator.clipboard.writeText(filePath);
-          showToast('已复制文件路径');
-        } else {
-          // 如果没有缓存路径，先预加载再复制
-          await preloadFileForDrag(id, content.fileName);
-          const newPath = dragFileCache[id];
-          if (newPath) {
-            await navigator.clipboard.writeText(newPath);
-            showToast('已复制文件路径');
-          } else {
-            alert('文件路径获取失败');
-          }
-        }
-      } catch (e) {
-        console.error('复制失败:', e);
-        alert('复制失败');
+      if (content.fileUrl) {
+        window.open(content.fileUrl, '_blank');
+        return;
       }
-      return;
     }
     
-    // 如果是音频且有文件，下载它
+    // 如果是音频且有文件，优先云端链接，否则尝试本地
     if (mode === 'audio' && content.hasAudioFile) {
+      if (content.fileUrl) {
+        const a = document.createElement('a');
+        a.href = content.fileUrl;
+        a.download = content.fileName || `${content.title}.mp3`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
       try {
         const fileData = await getEpubFromDB(id);
         if (fileData) {
@@ -1205,6 +1208,23 @@
 
   // EPUB 临时数据
   let pendingEpubData = null;
+  // 音频临时数据
+  let pendingAudioData = null;
+
+  // Supabase 上传文件（返回公共 URL），失败则抛出错误
+  async function uploadToSupabase(file, folder, id) {
+    if (!supabaseClient || !SUPABASE_BUCKET) {
+      throw new Error('Supabase 未配置');
+    }
+    const path = `${folder}/${id}-${encodeURIComponent(file.name)}`;
+    const { error } = await supabaseClient.storage.from(SUPABASE_BUCKET).upload(path, file, {
+      cacheControl: '3600',
+      upsert: true
+    });
+    if (error) throw error;
+    const { data } = supabaseClient.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+    return data?.publicUrl || '';
+  }
 
   // IndexedDB 数据库
   let epubDB = null;
@@ -1509,17 +1529,14 @@
         }
       }
       
-      // 读取原始文件数据
-      const fileData = await file.arrayBuffer();
-      
-      // 保存临时数据
-      pendingEpubData = {
+    // 保存临时数据（保留 File 对象用于上传）
+    pendingEpubData = {
         title,
         author,
         image: coverImage,
         fileName: file.name,
-        fileData: fileData
-      };
+        file: file
+    };
       
       // 显示预览
       document.getElementById('epubTitlePreview').textContent = title;
@@ -1549,27 +1566,30 @@
     
     const contentId = generateId();
     
+    let fileUrl = '';
+    try {
+      if (pendingEpubData.file && supabaseClient) {
+        fileUrl = await uploadToSupabase(pendingEpubData.file, 'books', contentId);
+      }
+    } catch (e) {
+      console.error('上传 EPUB 到 Supabase 失败:', e);
+      alert('文件上传失败，请稍后重试');
+      return;
+    }
+
     const content = {
       id: contentId,
       title: pendingEpubData.title,
       author: pendingEpubData.author,
       image: pendingEpubData.image,
       fileName: pendingEpubData.fileName,
-      hasEpubFile: true,
+      hasEpubFile: !!fileUrl,
+      fileUrl: fileUrl,
       url: '',
       note: '',
       createdAt: Date.now()
     };
-    
-    // 保存文件到 IndexedDB
-    try {
-      await saveEpubToDB(contentId, pendingEpubData.fileData);
-    } catch (e) {
-      console.error('保存 EPUB 文件失败:', e);
-      alert('保存文件失败');
-      return;
-    }
-    
+
     flowData.contents[mode].push(content);
     pendingEpubData = null;
     saveData();
@@ -1660,9 +1680,6 @@
     render();
   }
 
-  // 音频临时数据
-  let pendingAudioData = null;
-
   // 批量处理音频文件
   async function handleAudioFiles(files) {
     // 过滤音频文件
@@ -1745,8 +1762,6 @@
   
   // 直接添加音频（批量时使用）
   async function addAudioFileDirect(file) {
-    const fileData = await file.arrayBuffer();
-    
     const mode = 'audio';
     if (!flowData.contents[mode]) {
       flowData.contents[mode] = [];
@@ -1760,14 +1775,19 @@
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
-      hasAudioFile: true,
+      hasAudioFile: false,
+      fileUrl: '',
       url: '',
       note: '',
       createdAt: Date.now()
     };
-    
-    // 保存文件到 IndexedDB
-    await saveEpubToDB(contentId, fileData);
+
+    // 上传到 Supabase
+    if (supabaseClient) {
+      const fileUrl = await uploadToSupabase(file, 'audio', contentId);
+      content.fileUrl = fileUrl;
+      content.hasAudioFile = !!fileUrl;
+    }
     
     flowData.contents[mode].push(content);
   }
@@ -1787,16 +1807,13 @@
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     };
 
-    // 读取文件数据
-    const fileData = await file.arrayBuffer();
-    
-    // 保存临时数据
+    // 保存临时数据（保留 File 用于上传）
     pendingAudioData = {
       title: file.name.replace(/\.[^/.]+$/, ''),
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
-      fileData: fileData
+      file: file
     };
     
     // 显示预览
@@ -1816,27 +1833,30 @@
     
     const contentId = generateId();
     
+    let fileUrl = '';
+    try {
+      if (pendingAudioData.file && supabaseClient) {
+        fileUrl = await uploadToSupabase(pendingAudioData.file, 'audio', contentId);
+      }
+    } catch (e) {
+      console.error('上传音频到 Supabase 失败:', e);
+      alert('文件上传失败，请稍后重试');
+      return;
+    }
+
     const content = {
       id: contentId,
       title: pendingAudioData.title,
       fileName: pendingAudioData.fileName,
       fileSize: pendingAudioData.fileSize,
       fileType: pendingAudioData.fileType,
-      hasAudioFile: true,
+      hasAudioFile: !!fileUrl,
+      fileUrl: fileUrl,
       url: '',
       note: '',
       createdAt: Date.now()
     };
-    
-    // 保存文件到 IndexedDB（复用 epubs store）
-    try {
-      await saveEpubToDB(contentId, pendingAudioData.fileData);
-    } catch (e) {
-      console.error('保存音频文件失败:', e);
-      alert('保存文件失败');
-      return;
-    }
-    
+
     flowData.contents[mode].push(content);
     pendingAudioData = null;
     saveData();
