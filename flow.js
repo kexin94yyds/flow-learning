@@ -856,15 +856,17 @@
     const content = flowData.contents[mode]?.find(c => c.id === id);
     if (!content) return;
     
-    // 如果是书籍且有文件，直接打开云端链接
+    // 如果是书籍且有文件，只用 Supabase 链接
     if (mode === 'book' && content.hasEpubFile) {
       if (content.fileUrl) {
         window.open(content.fileUrl, '_blank');
         return;
       }
+      alert('未找到书籍文件，请重新上传以生成云端链接');
+      return;
     }
     
-    // 如果是音频且有文件，优先云端链接，否则尝试本地
+    // 如果是音频且有文件，优先云端链接
     if (mode === 'audio' && content.hasAudioFile) {
       if (content.fileUrl) {
         const a = document.createElement('a');
