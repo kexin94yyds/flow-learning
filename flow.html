@@ -880,6 +880,11 @@
       color: #9ca3af;
     }
 
+    /* 网页端隐藏置顶按钮（仅 Electron App 显示） */
+    body.is-web .pin-btn {
+      display: none;
+    }
+
     /* 移动端适配 */
     @media (max-width: 768px) {
       .sidebar {
@@ -911,8 +916,8 @@
       .header-btn span {
         display: none;
       }
-      /* 隐藏置顶和搜索按钮 */
-      .pin-btn, #searchBtn {
+      /* 隐藏搜索按钮 */
+      #searchBtn {
         display: none;
       }
       .content-area {

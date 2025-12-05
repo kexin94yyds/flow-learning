@@ -123,6 +123,11 @@
 
   // 初始化
   async function init() {
+    // 非 Electron 环境添加标记（用于隐藏置顶按钮等）
+    if (!isElectron) {
+      document.body.classList.add('is-web');
+    }
+    
     await initEpubDB();
     await loadData();
     bindEvents();
