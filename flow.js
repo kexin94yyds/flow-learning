@@ -139,6 +139,11 @@
       const searchInput = document.getElementById('searchInput');
       if (searchInput) searchInput.focus();
     }, 100);
+    
+    // 检测剪贴板链接（仅 Web 环境）
+    if (!isElectron) {
+      checkClipboardForLink();
+    }
   }
 
   // 加载数据
@@ -2133,6 +2138,126 @@
       day: '2-digit'
     });
   }
+
+  // 剪贴板链接检测（Web 环境）
+  let lastCheckedClipboard = localStorage.getItem('lastCheckedClipboard') || '';
+  let clipboardBubble = null;
+  
+  async function checkClipboardForLink() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      
+      // 检查是否是链接
+      const isUrl = /^(https?:\/\/|www\.)/i.test(text.trim());
+      if (!isUrl) return;
+      
+      const url = text.trim();
+      
+      // 检查是否已经处理过这个链接
+      if (url === lastCheckedClipboard) return;
+      
+      // 显示气泡提示
+      showClipboardBubble(url);
+    } catch (e) {
+      // 用户可能拒绝了剪贴板权限，静默处理
+      console.log('剪贴板读取失败（可能需要用户授权）');
+    }
+  }
+  
+  function showClipboardBubble(url) {
+    // 移除已有气泡
+    hideClipboardBubble();
+    
+    // 截取显示的 URL
+    let displayUrl = url;
+    try {
+      const urlObj = new URL(url.startsWith('http') ? url : 'https://' + url);
+      displayUrl = urlObj.hostname + (urlObj.pathname !== '/' ? urlObj.pathname : '');
+      if (displayUrl.length > 30) {
+        displayUrl = displayUrl.substring(0, 30) + '...';
+      }
+    } catch (e) {
+      if (url.length > 30) {
+        displayUrl = url.substring(0, 30) + '...';
+      }
+    }
+    
+    clipboardBubble = document.createElement('div');
+    clipboardBubble.className = 'clipboard-bubble';
+    clipboardBubble.innerHTML = `
+      <svg class="clipboard-bubble-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+      </svg>
+      <span class="clipboard-bubble-text" title="${escapeHtml(url)}">${escapeHtml(displayUrl)}</span>
+      <button class="clipboard-bubble-btn">添加</button>
+      <button class="clipboard-bubble-close">
+        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    `;
+    
+    document.body.appendChild(clipboardBubble);
+    
+    // 添加按钮事件
+    clipboardBubble.querySelector('.clipboard-bubble-btn').addEventListener('click', () => {
+      // 记录已处理
+      lastCheckedClipboard = url;
+      localStorage.setItem('lastCheckedClipboard', url);
+      
+      // 打开添加弹窗并填入 URL
+      openContentModal();
+      setTimeout(() => {
+        if (contentUrlInput) {
+          contentUrlInput.value = url;
+          // 触发 input 事件以便自动获取元数据
+          contentUrlInput.dispatchEvent(new Event('input'));
+        }
+        // 论文模式
+        const paperUrlInput = document.getElementById('paperUrlInput');
+        if (paperUrlInput && flowData.currentMode === 'paper') {
+          paperUrlInput.value = url;
+        }
+      }, 100);
+      
+      hideClipboardBubble();
+    });
+    
+    // 关闭按钮事件
+    clipboardBubble.querySelector('.clipboard-bubble-close').addEventListener('click', () => {
+      // 记录已处理（忽略这个链接）
+      lastCheckedClipboard = url;
+      localStorage.setItem('lastCheckedClipboard', url);
+      hideClipboardBubble();
+    });
+    
+    // 5秒后自动隐藏
+    setTimeout(() => {
+      if (clipboardBubble && clipboardBubble.parentNode) {
+        hideClipboardBubble();
+      }
+    }, 5000);
+  }
+  
+  function hideClipboardBubble() {
+    if (clipboardBubble && clipboardBubble.parentNode) {
+      clipboardBubble.classList.add('hiding');
+      setTimeout(() => {
+        if (clipboardBubble && clipboardBubble.parentNode) {
+          clipboardBubble.remove();
+        }
+        clipboardBubble = null;
+      }, 300);
+    }
+  }
+  
+  // 页面可见时也检测剪贴板（从其他 app 切回来时）
+  document.addEventListener('visibilitychange', () => {
+    if (!isElectron && document.visibilityState === 'visible') {
+      checkClipboardForLink();
+    }
+  });
 
   // 启动
   init();
