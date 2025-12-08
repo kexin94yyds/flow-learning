@@ -1381,8 +1381,10 @@
     const creatorEl = opfDoc.querySelector('metadata creator, metadata dc\\:creator');
     const author = creatorEl ? creatorEl.textContent : '未知作者';
     
-    // 获取封面（简化版）
+    // 获取封面
     let coverImage = '';
+    
+    // 方法1: 从 meta cover 获取
     const coverMeta = opfDoc.querySelector('meta[name="cover"]');
     if (coverMeta) {
       const coverId = coverMeta.getAttribute('content');
@@ -1395,6 +1397,39 @@
           const coverData = await coverFile.async('base64');
           const mediaType = coverItem.getAttribute('media-type') || 'image/jpeg';
           coverImage = `data:${mediaType};base64,${coverData}`;
+        }
+      }
+    }
+    
+    // 方法2: 查找 cover-image 属性
+    if (!coverImage) {
+      const coverItem = opfDoc.querySelector('item[properties="cover-image"]');
+      if (coverItem) {
+        const coverHref = coverItem.getAttribute('href');
+        const coverPath = rootDir + coverHref;
+        const coverFile = zip.file(coverPath) || zip.file(coverHref);
+        if (coverFile) {
+          const coverData = await coverFile.async('base64');
+          const mediaType = coverItem.getAttribute('media-type') || 'image/jpeg';
+          coverImage = `data:${mediaType};base64,${coverData}`;
+        }
+      }
+    }
+    
+    // 方法3: 查找名为 cover 的图片
+    if (!coverImage) {
+      const items = opfDoc.querySelectorAll('item[media-type^="image"]');
+      for (const item of items) {
+        const href = item.getAttribute('href').toLowerCase();
+        if (href.includes('cover')) {
+          const coverPath = rootDir + item.getAttribute('href');
+          const coverFile = zip.file(coverPath) || zip.file(item.getAttribute('href'));
+          if (coverFile) {
+            const coverData = await coverFile.async('base64');
+            const mediaType = item.getAttribute('media-type') || 'image/jpeg';
+            coverImage = `data:${mediaType};base64,${coverData}`;
+            break;
+          }
         }
       }
     }
@@ -2038,6 +2073,7 @@
     });
   }
 
+              
   // 启动
   init();
 })();

@@ -546,17 +546,55 @@
               if (titleMatch) title = titleMatch[1];
               if (authorMatch) author = authorMatch[1];
               
-              // 尝试获取封面
-              const coverMeta = opfContent.match(/name="cover"\s+content="([^"]+)"/i);
+              // 尝试获取封面 - 方法1: 从 meta cover 获取
+              const rootDir = rootfileMatch[1].substring(0, rootfileMatch[1].lastIndexOf('/') + 1);
+              console.log('[EPUB Debug] rootDir:', rootDir);
+              console.log('[EPUB Debug] opfContent length:', opfContent.length);
+              const coverMeta = opfContent.match(/name="cover"\s+content="([^"]+)"/i) || 
+                               opfContent.match(/content="([^"]+)"\s+name="cover"/i);
+              console.log('[EPUB Debug] coverMeta:', coverMeta);
               if (coverMeta) {
-                const coverItemMatch = opfContent.match(new RegExp(`id="${coverMeta[1]}"[^>]*href="([^"]+)"`, 'i'));
+                const coverItemMatch = opfContent.match(new RegExp(`id="${coverMeta[1]}"[^>]*href="([^"]+)"`, 'i')) ||
+                                      opfContent.match(new RegExp(`href="([^"]+)"[^>]*id="${coverMeta[1]}"`, 'i'));
                 if (coverItemMatch) {
-                  const rootDir = rootfileMatch[1].substring(0, rootfileMatch[1].lastIndexOf('/') + 1);
                   const coverPath = rootDir + coverItemMatch[1];
                   const coverFile = zip.file(coverPath) || zip.file(coverItemMatch[1]);
                   if (coverFile) {
                     const coverData = await coverFile.async('base64');
-                    coverImage = `data:image/jpeg;base64,${coverData}`;
+                    const mediaType = coverItemMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法2: 查找 properties="cover-image" 的 item
+              if (!coverImage) {
+                const coverImageMatch = opfContent.match(/properties="cover-image"[^>]*href="([^"]+)"/i) ||
+                                       opfContent.match(/href="([^"]+)"[^>]*properties="cover-image"/i);
+                if (coverImageMatch) {
+                  const coverPath = rootDir + coverImageMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverImageMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverImageMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法3: 查找文件名包含 cover 的图片
+              if (!coverImage) {
+                const imageMatches = opfContent.matchAll(/href="([^"]+\.(jpe?g|png|gif|webp))"/gi);
+                for (const match of imageMatches) {
+                  if (match[1].toLowerCase().includes('cover')) {
+                    const coverPath = rootDir + match[1];
+                    const coverFile = zip.file(coverPath) || zip.file(match[1]);
+                    if (coverFile) {
+                      const coverData = await coverFile.async('base64');
+                      const mediaType = match[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                      coverImage = `data:${mediaType};base64,${coverData}`;
+                      break;
+                    }
                   }
                 }
               }
@@ -619,6 +657,7 @@
         
         let title = file.name.replace('.epub', '');
         let author = '';
+        let coverImage = '';
         
         // 尝试解析 metadata
         const containerXml = await zip.file('META-INF/container.xml')?.async('string');
@@ -631,11 +670,71 @@
               const authorMatch = opfContent.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
               if (titleMatch) title = titleMatch[1];
               if (authorMatch) author = authorMatch[1];
+              
+              // 提取封面图片
+              const rootDir = rootfileMatch[1].substring(0, rootfileMatch[1].lastIndexOf('/') + 1);
+              
+              // 方法1: 从 meta cover 获取
+              const coverMeta = opfContent.match(/name="cover"\s+content="([^"]+)"/i) || 
+                               opfContent.match(/content="([^"]+)"\s+name="cover"/i);
+              if (coverMeta) {
+                const coverItemMatch = opfContent.match(new RegExp(`id="${coverMeta[1]}"[^>]*href="([^"]+)"`, 'i')) ||
+                                      opfContent.match(new RegExp(`href="([^"]+)"[^>]*id="${coverMeta[1]}"`, 'i'));
+                if (coverItemMatch) {
+                  const coverPath = rootDir + coverItemMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverItemMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverItemMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法2: 查找 properties="cover-image" 的 item
+              if (!coverImage) {
+                const coverImageMatch = opfContent.match(/properties="cover-image"[^>]*href="([^"]+)"/i) ||
+                                       opfContent.match(/href="([^"]+)"[^>]*properties="cover-image"/i);
+                if (coverImageMatch) {
+                  const coverPath = rootDir + coverImageMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverImageMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverImageMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法3: 查找文件名包含 cover 的图片
+              if (!coverImage) {
+                const imageMatches = opfContent.matchAll(/href="([^"]+\.(jpe?g|png|gif|webp))"/gi);
+                for (const match of imageMatches) {
+                  if (match[1].toLowerCase().includes('cover')) {
+                    const coverPath = rootDir + match[1];
+                    const coverFile = zip.file(coverPath) || zip.file(match[1]);
+                    if (coverFile) {
+                      const coverData = await coverFile.async('base64');
+                      const mediaType = match[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                      coverImage = `data:${mediaType};base64,${coverData}`;
+                      break;
+                    }
+                  }
+                }
+              }
             }
           }
         }
         
         titleInput.value = title;
+        // 设置封面图片
+        if (coverImage) {
+          currentImage = coverImage;
+          imagePreview.style.display = 'block';
+          imagePreview.querySelector('img').src = coverImage;
+          dropZone.style.display = 'none';
+        }
+        
         pendingFileData = {
           type: 'epub',
           data: arrayBuffer,
