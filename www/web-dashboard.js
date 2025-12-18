@@ -316,34 +316,68 @@ document.addEventListener('DOMContentLoaded', () => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
-          const importedItems = JSON.parse(e.target.result);
-          if (!Array.isArray(importedItems)) {
-            alert('文件格式错误：必须是 JSON 数组');
+          const importObj = JSON.parse(e.target.result);
+          
+          // 支持多种格式 (与 app 版一致)
+          let importedItems = [];
+          if (importObj.items && Array.isArray(importObj.items)) {
+            importedItems = importObj.items;
+          } else if (importObj.flowData?.contents) {
+            // 兼容旧格式
+            const oldContents = importObj.flowData.contents;
+            for (const [mode, list] of Object.entries(oldContents)) {
+              list.forEach(content => {
+                importedItems.push({
+                  ...content,
+                  platform: getPlatform(content.url),
+                  category: 'read_later'
+                });
+              });
+            }
+          } else if (Array.isArray(importObj)) {
+            importedItems = importObj;
+          } else {
+            alert('无效的数据文件');
             return;
           }
 
-          if (confirm(`准备导入 ${importedItems.length} 条数据。是否合并到现有数据中？\n(点击"取消"将放弃导入)`)) {
-            const currentItems = allItems && allItems.length
-              ? allItems
-              : await window.webAPI.getItems();
-            // 合并策略：ID 去重，保留导入的数据优先
-            const map = new Map();
+          const currentItems = allItems && allItems.length
+            ? allItems
+            : await window.webAPI.getItems();
 
-            importedItems.forEach(item => map.set(item.id, item));
-            currentItems.forEach(item => {
-              if (!map.has(item.id)) {
-                map.set(item.id, item);
-              }
-            });
+          // 过滤重复项（根据 URL 和 ID）
+          const existingUrls = new Set(currentItems.map(item => item.url).filter(url => url));
+          const existingIds = new Set(currentItems.map(item => item.id));
+          
+          let newItems = [];
+          let skipCount = 0;
+          for (const item of importedItems) {
+            if ((item.url && existingUrls.has(item.url)) || existingIds.has(item.id)) {
+              skipCount++;
+              continue;
+            }
+            newItems.push(item);
+          }
 
-            const mergedItems = Array.from(map.values()).sort((a, b) => {
+          if (newItems.length === 0) {
+            alert(`未发现新内容（跳过了 ${skipCount} 个重复项）`);
+            importFile.value = '';
+            return;
+          }
+
+          if (confirm(`准备导入 ${newItems.length} 条新数据（跳过 ${skipCount} 条重复项）。是否确认合并？`)) {
+            const mergedItems = [...currentItems, ...newItems].sort((a, b) => {
               if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
               return new Date(b.createdAt) - new Date(a.createdAt);
             });
 
             await window.webAPI.updateItems(mergedItems);
+            
+            // 如果有文件数据且支持 IndexedDB，也可以尝试同步 (Web 版通常通过 Sync 同步文件)
+            // 这里主要处理 metadata 和 列表项
+            
             loadItems();
-            alert('导入成功！');
+            alert(`导入成功！新增 ${newItems.length} 项。`);
           }
         } catch (err) {
           console.error(err);
