@@ -165,22 +165,27 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        print("🟡 applicationDidBecomeActive, hasPendingClipboard=\(hasPendingClipboard)")
-        // 激活时检查是否有待处理的剪贴板内容
-        if hasPendingClipboard {
-            hasPendingClipboard = false
-            if let content = UIPasteboard.general.string {
-                print("🟡 剪贴板内容: \(content.prefix(30))...")
-                print("🟡 上次内容: \(lastPasteboardContent?.prefix(30) ?? "nil")...")
-                if content != lastPasteboardContent {
-                    lastPasteboardContent = content
-                    print("🟡 内容不同，开始处理")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.sendClipboardToWebView(content)
-                    }
-                } else {
-                    print("🟡 内容相同，跳过")
+        print("🟡 applicationDidBecomeActive")
+        // 每次激活时都检查剪贴板（不依赖后台监听）
+        hasPendingClipboard = false
+        
+        if let content = UIPasteboard.general.string {
+            print("🟡 剪贴板内容: \(content.prefix(30))...")
+            print("🟡 上次内容: \(lastPasteboardContent?.prefix(30) ?? "nil")...")
+            
+            // 检查是否是链接
+            let isUrl = content.hasPrefix("http://") || content.hasPrefix("https://")
+            
+            if isUrl && content != lastPasteboardContent {
+                lastPasteboardContent = content
+                print("🟡 检测到新链接，开始处理")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.sendClipboardToWebView(content)
                 }
+            } else if !isUrl {
+                print("🟡 不是链接，跳过")
+            } else {
+                print("🟡 链接相同，跳过")
             }
         }
     }

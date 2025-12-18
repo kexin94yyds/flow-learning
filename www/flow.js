@@ -1250,10 +1250,22 @@
       }
     }
 
-    items.unshift(newItem);
+    // 直接添加到 flowData.contents 中，确保 render 能看到
+    const mode = captureModeSelect.value;
+    if (!flowData.contents[mode]) flowData.contents[mode] = [];
+    
+    flowData.contents[mode].unshift({
+      id: newItem.id,
+      url: newItem.url,
+      title: newItem.title,
+      image: newItem.image,
+      note: newItem.note,
+      createdAt: newItem.createdAt,
+      platform: newItem.platform
+    });
+
     await saveData();
-    await itemsToFlowData();
-    render();
+    switchMode(mode); // 自动切换到该模式，方便用户查看
     closeCaptureModal();
   }
 
