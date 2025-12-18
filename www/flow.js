@@ -790,7 +790,6 @@
         <div class="media-card-footer">
           <span>${formatDate(content.createdAt)}</span>
           <div class="media-card-actions">
-            <button class="media-card-btn pin ${content.pinned ? 'active' : ''}">${content.pinned ? '已置顶' : '置顶'}</button>
             <button class="media-card-btn delete">删除</button>
           </div>
         </div>
