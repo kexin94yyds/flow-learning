@@ -790,6 +790,7 @@
         <div class="media-card-footer">
           <span>${formatDate(content.createdAt)}</span>
           <div class="media-card-actions">
+            <button class="media-card-btn pin ${content.pinned ? 'active' : ''}">${content.pinned ? '已置顶' : '置顶'}</button>
             <button class="media-card-btn delete">删除</button>
           </div>
         </div>
@@ -2172,9 +2173,6 @@
   // 导出数据
   async function exportData() {
     try {
-      // 检测 Capacitor 环境
-      const isCapacitor = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
-      
       // 收集所有文件数据
       const files = {};
       
@@ -2224,31 +2222,6 @@
           // 用户取消，不显示提示
         } else {
           alert('导出失败');
-        }
-      } else if (isCapacitor) {
-        // Capacitor 环境：使用 Filesystem + Share
-        try {
-          const { Filesystem, Directory } = await import('@aspect-build/aspect-packages/external/@aspect-build+aspect-packages_capacitor_filesystem+directory/filesystem');
-        } catch (e) {
-          // 直接使用 Capacitor 全局对象
-        }
-        
-        // 使用 Data URL 分享
-        const base64Data = btoa(unescape(encodeURIComponent(json)));
-        const dataUrl = `data:application/json;base64,${base64Data}`;
-        
-        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Share) {
-          await window.Capacitor.Plugins.Share.share({
-            title: 'Flow 数据导出',
-            text: '导出的 Flow 数据',
-            url: dataUrl,
-            dialogTitle: '分享数据文件'
-          });
-          alert('导出成功！');
-        } else {
-          // 降级：复制到剪贴板
-          await navigator.clipboard.writeText(json);
-          alert('数据已复制到剪贴板！');
         }
       } else {
         // 浏览器环境：使用下载链接
