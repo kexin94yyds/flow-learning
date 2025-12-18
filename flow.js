@@ -2254,38 +2254,80 @@
         return;
       }
       
-      if (!confirm('导入将覆盖当前数据，确定继续吗？')) {
+      // 改为增量导入，不覆盖现有数据
+      let newItems = [];
+      let importedItems = importObj.items || [];
+      
+      // 如果是旧格式，先转换
+      if (!importObj.items && importObj.flowData?.contents) {
+        // 临时构造一个 items 数组来处理旧格式转换
+        const oldContents = importObj.flowData.contents;
+        for (const [mode, list] of Object.entries(oldContents)) {
+          for (const content of list) {
+            importedItems.push({
+              ...content,
+              platform: getPlatformFromMode(mode, content.url),
+              category: 'read_later'
+            });
+          }
+        }
+      }
+
+      // 过滤重复项（根据 URL 识别）
+      const existingUrls = new Set(items.map(item => item.url).filter(url => url));
+      const existingIds = new Set(items.map(item => item.id));
+      
+      let skipCount = 0;
+      for (const item of importedItems) {
+        if ((item.url && existingUrls.has(item.url)) || existingIds.has(item.id)) {
+          skipCount++;
+          continue;
+        }
+        newItems.push(item);
+      }
+
+      if (newItems.length === 0) {
+        alert(`未发现新内容（跳过了 ${skipCount} 个重复项）`);
         return;
       }
+
+      // 合并数据
+      items = [...items, ...newItems];
       
-      // 优先使用 items 格式
-      if (importObj.items) {
-        items = importObj.items;
-        itemsToFlowData();
-      } else if (importObj.flowData) {
-        // 兼容旧格式
-        flowData.contents = importObj.flowData.contents || { video: [], book: [], paper: [], audio: [] };
-        flowDataToItems();
-      }
-      
-      // 恢复笔记
-      if (importObj.notes) {
-        flowData.notes = importObj.notes;
-      } else if (importObj.flowData?.notes) {
-        flowData.notes = importObj.flowData.notes;
-      }
-      
-      // 恢复文件到 IndexedDB
-      if (importObj.files) {
-        for (const [id, base64Data] of Object.entries(importObj.files)) {
-          const arrayBuffer = base64ToArrayBuffer(base64Data);
-          await saveEpubToDB(id, arrayBuffer);
+      // 合并笔记
+      const importedNotes = importObj.notes || importObj.flowData?.notes || {};
+      for (const [mode, contentNotes] of Object.entries(importedNotes)) {
+        if (!flowData.notes[mode]) flowData.notes[mode] = {};
+        for (const [contentId, notesList] of Object.entries(contentNotes)) {
+          // 只有当该内容被成功导入或已存在时，才合并笔记
+          if (!flowData.notes[mode][contentId]) {
+            flowData.notes[mode][contentId] = notesList;
+          } else {
+            // 如果笔记已存在，合并列表并去重（根据笔记 ID）
+            const existingNoteIds = new Set(flowData.notes[mode][contentId].map(n => n.id));
+            const newNotes = notesList.filter(n => !existingNoteIds.has(n.id));
+            flowData.notes[mode][contentId] = [...flowData.notes[mode][contentId], ...newNotes];
+          }
         }
       }
       
+      // 恢复文件到 IndexedDB (只针对新导入的内容)
+      if (importObj.files) {
+        const newItemIds = new Set(newItems.map(i => i.id));
+        for (const [id, base64Data] of Object.entries(importObj.files)) {
+          if (newItemIds.has(id)) {
+            const arrayBuffer = base64ToArrayBuffer(base64Data);
+            await saveEpubToDB(id, arrayBuffer);
+          }
+        }
+      }
+      
+      // 更新内存结构并保存
+      await itemsToFlowData();
       saveData();
       render();
-      alert('导入成功！');
+      
+      alert(`导入成功！新增 ${newItems.length} 项，跳过 ${skipCount} 个重复项。`);
     } catch (e) {
       console.error('导入失败:', e);
       alert('导入失败，请检查文件格式');
