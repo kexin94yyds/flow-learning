@@ -38,8 +38,37 @@ async function fetchMetadata(url) {
     }
   }
 
-  // 与桌面端一样：Twitter/X 使用专门的 UA 以获得 OpenGraph 标签
+  // 对于 Twitter/X，使用 api.fxtwitter.com JSON API（目前最稳定的方案）
   if (url.includes('twitter.com') || url.includes('x.com')) {
+    try {
+      const statusId = url.match(/status\/(\d+)/)?.[1];
+      if (statusId) {
+        const apiUrl = `https://api.fxtwitter.com/status/${statusId}`;
+        const fxRes = await fetch(apiUrl, { timeout: 5000 });
+        if (fxRes.ok) {
+          const data = await fxRes.json();
+          if (data.tweet) {
+            const tweet = data.tweet;
+            let image = '';
+            if (tweet.media && tweet.media.photos && tweet.media.photos.length > 0) {
+              image = tweet.media.photos[0].url;
+            } else if (tweet.media && tweet.media.mosaic) {
+              image = tweet.media.mosaic.formats.jpeg || tweet.media.mosaic.formats.png || '';
+            } else if (tweet.author && tweet.author.avatar_url) {
+              image = tweet.author.avatar_url;
+            }
+            return {
+              title: (tweet.text || `${tweet.author.name} 的推文`).trim(),
+              image: image
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.error('fxtwitter API error:', e);
+    }
+
+    // 备选：原有的 UA 抓取逻辑
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'

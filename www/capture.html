@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: transparent;
+      overflow: hidden;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(20px);
+      height: 100vh;
+      padding: 24px;
+      box-sizing: border-box;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    /* 边缘拖拽区域（用于移动无边框窗口） */
+    .window-drag-edge {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      width: 10px;
+      -webkit-app-region: drag;
+      z-index: 9999;
+      background: transparent;
+    }
+
+    .window-drag-edge.left {
+      left: 0;
+    }
+
+    .window-drag-edge.right {
+      right: 0;
+    }
+
+    .window-drag-top {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 10px;
+      -webkit-app-region: drag;
+      z-index: 9999;
+      background: transparent;
+    }
+
+    /* 拖动区域 */
+    .drag-handle {
+      -webkit-app-region: drag;
+      height: 40px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .drag-handle h2 {
+      -webkit-app-region: drag;
+      user-select: none;
+      margin: 0;
+      font-size: 16px;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .close-btn {
+      -webkit-app-region: no-drag;
+      cursor: pointer;
+      color: #999;
+      font-size: 18px;
+      border: none;
+      background: none;
+      padding: 0 5px;
+    }
+
+    .close-btn:hover {
+      color: #333;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      box-sizing: border-box;
+      margin-bottom: 12px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+      background: white;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: #000;
+    }
+
+    /* 预览图 */
+    #imagePreview {
+      margin-bottom: 16px;
+      margin-top: 8px;
+      display: none;
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+      background: #f3f4f6;
+      max-height: 220px;
+      min-height: 180px;
+    }
+
+    #imagePreview img {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .status-bar {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #6b7280;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+      flex-shrink: 0;
+      gap: 8px;
+    }
+
+    .save-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .primary-btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .secondary-btn {
+      background: white;
+      color: #374151;
+      border: 1px solid #d1d5db;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .secondary-btn:hover {
+      background: #f3f4f6;
+    }
+
+    .key-hint {
+      background: #e5e7eb;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #4b5563;
+    }
+
+    .file-drop-zone {
+      border: 2px dashed #d1d5db;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #fafafa;
+      margin-bottom: 12px;
+    }
+    .file-drop-zone:hover {
+      border-color: #2563eb;
+      background: rgba(37, 99, 235, 0.05);
+    }
+    .file-drop-zone.drag-over {
+      border-color: #2563eb;
+      background: rgba(37, 99, 235, 0.1);
+    }
+    .file-drop-icon {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 8px;
+      background: #dbeafe;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .file-drop-icon svg {
+      width: 22px;
+      height: 22px;
+      color: #2563eb;
+    }
+    .file-drop-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+    .file-drop-hint {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .file-drop-zone.has-file {
+      border-style: solid;
+      border-color: #10b981;
+      background: #ecfdf5;
+    }
+    .file-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .file-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .file-icon svg {
+      width: 20px;
+      height: 20px;
+      color: white;
+    }
+    .file-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .file-name {
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-size {
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    /* 置顶按钮 */
+    .pin-btn {
+      -webkit-app-region: no-drag;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .pin-btn:hover {
+      background: #f3f4f6;
+    }
+    .pin-btn.active {
+      background: #1f2937;
+      border-color: #1f2937;
+    }
+    .pin-btn.active svg {
+      stroke: #fff;
+    }
+    .pin-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: #6b7280;
+      transform: rotate(45deg);
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+
+<body>
+  <!-- 边缘拖拽区域：靠近左右与顶部时可拖动窗口 -->
+  <div class="window-drag-edge left"></div>
+  <div class="window-drag-edge right"></div>
+  <div class="window-drag-top"></div>
+
+  <div class="container">
+    <div class="drag-handle">
+      <h2>
+        <span id="statusIcon">✨</span>
+        <span id="statusText">添加新内容</span>
+      </h2>
+      <button class="pin-btn" id="pinBtn" title="置顶窗口">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" x2="12" y1="17" y2="22"></line>
+          <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"></path>
+        </svg>
+      </button>
+    </div>
+
+    <div class="content-area">
+      <!-- 图片预览/文件拖拽区域 -->
+      <div id="imagePreview"><img src=""></div>
+      <div id="dropZone" class="file-drop-zone">
+        <div class="file-drop-icon">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13"/>
+          </svg>
+        </div>
+        <div class="file-drop-text">拖拽文件到这里添加</div>
+        <div class="file-drop-hint">支持 EPUB、MP3、WAV 等</div>
+        <input type="file" id="fileInput" accept=".epub,audio/*" multiple style="display: none;">
+      </div>
+
+      <input type="text" id="url" placeholder="链接 (Cmd+V 或自动读取)" autofocus>
+      <input type="text" id="title" placeholder="标题">
+
+      <div style="display: flex; gap: 10px;">
+        <select id="mode" style="flex: 1;">
+          <option value="video">视频</option>
+          <option value="book">书籍</option>
+          <option value="paper">论文</option>
+          <option value="audio">音频</option>
+          <option value="web">网页</option>
+        </select>
+        <select id="category" style="flex: 1;">
+          <option value="read_later">稍后阅读</option>
+          <option value="learning">学习资料</option>
+          <option value="inspiration">灵感</option>
+          <option value="entertainment">娱乐</option>
+        </select>
+      </div>
+
+      <textarea id="note" rows="2" placeholder="备注 (可选，Enter 保存，Shift+Enter 换行)"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <div class="save-group">
+        <span class="key-hint">⌘↵</span>
+        <button id="openDashboardBtn" class="secondary-btn">收藏库</button>
+      </div>
+      <div class="save-group">
+        <span class="key-hint">↵</span>
+        <button id="saveBtn" class="primary-btn">保存</button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="loadingStatus"></span>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    const urlInput = document.getElementById('url');
+    const titleInput = document.getElementById('title');
+    const modeInput = document.getElementById('mode');
+    const categoryInput = document.getElementById('category');
+    const noteInput = document.getElementById('note');
+    const imagePreview = document.getElementById('imagePreview');
+    const loadingStatus = document.getElementById('loadingStatus');
+    const statusText = document.getElementById('statusText');
+
+    let currentImage = '';
+    let debounceTimer;
+    let pendingFileData = null;
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+
+    // 点击打开文件选择
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleDroppedFiles(Array.from(e.target.files));
+      }
+    });
+
+    // 文件拖拽处理
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-over');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      if (e.dataTransfer.files.length > 0) {
+        handleDroppedFiles(Array.from(e.dataTransfer.files));
+      }
+    });
+
+    // 批量处理多个文件
+    async function handleDroppedFiles(files) {
+      // 过滤有效文件
+      const validFiles = files.filter(file => {
+        const fileName = file.name.toLowerCase();
+        return fileName.endsWith('.epub') || 
+               file.type.startsWith('audio/') || 
+               /\.(mp3|wav|m4a|ogg|flac)$/i.test(fileName);
+      });
+      
+      if (validFiles.length === 0) {
+        alert('没有有效的文件，仅支持 EPUB 和音频文件');
+        return;
+      }
+      
+      // 单个文件时使用原有逻辑
+      if (validFiles.length === 1) {
+        const file = validFiles[0];
+        const fileName = file.name.toLowerCase();
+        if (fileName.endsWith('.epub')) {
+          modeInput.value = 'book';
+          await processEpubFile(file);
+        } else {
+          modeInput.value = 'audio';
+          await processAudioFile(file);
+        }
+        return;
+      }
+      
+      // 多个文件时批量处理并直接保存
+      await batchSaveFiles(validFiles);
+    }
+    
+    // 批量保存文件
+    async function batchSaveFiles(files) {
+      const total = files.length;
+      let success = 0;
+      let failed = 0;
+      
+      loadingStatus.textContent = `正在添加 0/${total}...`;
+      dropZone.classList.add('has-file');
+      dropZone.innerHTML = `
+        <div class="file-drop-icon" style="background: #dbeafe;">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #2563eb;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+          </svg>
+        </div>
+        <div class="file-drop-text">批量上传中...</div>
+        <div class="file-drop-hint" id="batchProgress">0/${total}</div>
+      `;
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = file.name.toLowerCase();
+        
+        try {
+          if (fileName.endsWith('.epub')) {
+            await saveEpubFileDirect(file);
+          } else {
+            await saveAudioFileDirect(file);
+          }
+          success++;
+        } catch (e) {
+          console.error('保存文件失败:', file.name, e);
+          failed++;
+        }
+        
+        // 更新进度
+        const progress = document.getElementById('batchProgress');
+        if (progress) progress.textContent = `${i + 1}/${total}`;
+        loadingStatus.textContent = `正在添加 ${i + 1}/${total}...`;
+      }
+      
+      // 完成
+      loadingStatus.textContent = `✓ 已添加 ${success} 个文件` + (failed > 0 ? `，${failed} 个失败` : '');
+      
+      // 通知主窗口刷新
+      ipcRenderer.send('item-saved');
+      
+      // 延迟关闭
+      setTimeout(() => {
+        ipcRenderer.send('hide-capture-window');
+        resetForm();
+      }, 1000);
+    }
+    
+    // 直接保存 EPUB 文件（不显示预览）
+    async function saveEpubFileDirect(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      
+      let title = file.name.replace('.epub', '');
+      let author = '';
+      let coverImage = '';
+      
+      // 解析 metadata
+      try {
+        const containerXml = await zip.file('META-INF/container.xml')?.async('string');
+        if (containerXml) {
+          const rootfileMatch = containerXml.match(/full-path="([^"]+)"/);
+          if (rootfileMatch) {
+            const opfContent = await zip.file(rootfileMatch[1])?.async('string');
+            if (opfContent) {
+              const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
+              const authorMatch = opfContent.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
+              if (titleMatch) title = titleMatch[1];
+              if (authorMatch) author = authorMatch[1];
+              
+              // 尝试获取封面 - 方法1: 从 meta cover 获取
+              const rootDir = rootfileMatch[1].substring(0, rootfileMatch[1].lastIndexOf('/') + 1);
+              console.log('[EPUB Debug] rootDir:', rootDir);
+              console.log('[EPUB Debug] opfContent length:', opfContent.length);
+              const coverMeta = opfContent.match(/name="cover"\s+content="([^"]+)"/i) || 
+                               opfContent.match(/content="([^"]+)"\s+name="cover"/i);
+              console.log('[EPUB Debug] coverMeta:', coverMeta);
+              if (coverMeta) {
+                const coverItemMatch = opfContent.match(new RegExp(`id="${coverMeta[1]}"[^>]*href="([^"]+)"`, 'i')) ||
+                                      opfContent.match(new RegExp(`href="([^"]+)"[^>]*id="${coverMeta[1]}"`, 'i'));
+                if (coverItemMatch) {
+                  const coverPath = rootDir + coverItemMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverItemMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverItemMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法2: 查找 properties="cover-image" 的 item
+              if (!coverImage) {
+                const coverImageMatch = opfContent.match(/properties="cover-image"[^>]*href="([^"]+)"/i) ||
+                                       opfContent.match(/href="([^"]+)"[^>]*properties="cover-image"/i);
+                if (coverImageMatch) {
+                  const coverPath = rootDir + coverImageMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverImageMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverImageMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法3: 查找文件名包含 cover 的图片
+              if (!coverImage) {
+                const imageMatches = opfContent.matchAll(/href="([^"]+\.(jpe?g|png|gif|webp))"/gi);
+                for (const match of imageMatches) {
+                  if (match[1].toLowerCase().includes('cover')) {
+                    const coverPath = rootDir + match[1];
+                    const coverFile = zip.file(coverPath) || zip.file(match[1]);
+                    if (coverFile) {
+                      const coverData = await coverFile.async('base64');
+                      const mediaType = match[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                      coverImage = `data:${mediaType};base64,${coverData}`;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('解析 EPUB 元数据失败:', e);
+      }
+      
+      const newItem = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        url: '',
+        title: title,
+        category: categoryInput.value,
+        note: '',
+        image: coverImage,
+        platform: 'Book',
+        createdAt: new Date().toISOString(),
+        pinned: false,
+        hasEpubFile: true,
+        author: author,
+        fileName: file.name,
+        fileSize: file.size,
+        fileData: arrayBufferToBase64(arrayBuffer)
+      };
+      
+      await ipcRenderer.invoke('save-item', newItem);
+    }
+    
+    // 直接保存音频文件（不显示预览）
+    async function saveAudioFileDirect(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const title = file.name.replace(/\.[^.]+$/, '');
+      
+      const newItem = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        url: '',
+        title: title,
+        category: categoryInput.value,
+        note: '',
+        image: '',
+        platform: 'Audio',
+        createdAt: new Date().toISOString(),
+        pinned: false,
+        hasAudioFile: true,
+        fileName: file.name,
+        fileSize: file.size,
+        fileData: arrayBufferToBase64(arrayBuffer)
+      };
+      
+      await ipcRenderer.invoke('save-item', newItem);
+    }
+
+    async function processEpubFile(file) {
+      loadingStatus.textContent = '正在解析 EPUB...';
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        
+        let title = file.name.replace('.epub', '');
+        let author = '';
+        let coverImage = '';
+        
+        // 尝试解析 metadata
+        const containerXml = await zip.file('META-INF/container.xml')?.async('string');
+        if (containerXml) {
+          const rootfileMatch = containerXml.match(/full-path="([^"]+)"/);
+          if (rootfileMatch) {
+            const opfContent = await zip.file(rootfileMatch[1])?.async('string');
+            if (opfContent) {
+              const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
+              const authorMatch = opfContent.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
+              if (titleMatch) title = titleMatch[1];
+              if (authorMatch) author = authorMatch[1];
+              
+              // 提取封面图片
+              const rootDir = rootfileMatch[1].substring(0, rootfileMatch[1].lastIndexOf('/') + 1);
+              
+              // 方法1: 从 meta cover 获取
+              const coverMeta = opfContent.match(/name="cover"\s+content="([^"]+)"/i) || 
+                               opfContent.match(/content="([^"]+)"\s+name="cover"/i);
+              if (coverMeta) {
+                const coverItemMatch = opfContent.match(new RegExp(`id="${coverMeta[1]}"[^>]*href="([^"]+)"`, 'i')) ||
+                                      opfContent.match(new RegExp(`href="([^"]+)"[^>]*id="${coverMeta[1]}"`, 'i'));
+                if (coverItemMatch) {
+                  const coverPath = rootDir + coverItemMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverItemMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverItemMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法2: 查找 properties="cover-image" 的 item
+              if (!coverImage) {
+                const coverImageMatch = opfContent.match(/properties="cover-image"[^>]*href="([^"]+)"/i) ||
+                                       opfContent.match(/href="([^"]+)"[^>]*properties="cover-image"/i);
+                if (coverImageMatch) {
+                  const coverPath = rootDir + coverImageMatch[1];
+                  const coverFile = zip.file(coverPath) || zip.file(coverImageMatch[1]);
+                  if (coverFile) {
+                    const coverData = await coverFile.async('base64');
+                    const mediaType = coverImageMatch[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                    coverImage = `data:${mediaType};base64,${coverData}`;
+                  }
+                }
+              }
+              
+              // 方法3: 查找文件名包含 cover 的图片
+              if (!coverImage) {
+                const imageMatches = opfContent.matchAll(/href="([^"]+\.(jpe?g|png|gif|webp))"/gi);
+                for (const match of imageMatches) {
+                  if (match[1].toLowerCase().includes('cover')) {
+                    const coverPath = rootDir + match[1];
+                    const coverFile = zip.file(coverPath) || zip.file(match[1]);
+                    if (coverFile) {
+                      const coverData = await coverFile.async('base64');
+                      const mediaType = match[1].match(/\.(png|gif|webp)$/i) ? `image/${RegExp.$1.toLowerCase()}` : 'image/jpeg';
+                      coverImage = `data:${mediaType};base64,${coverData}`;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        titleInput.value = title;
+        // 设置封面图片
+        if (coverImage) {
+          currentImage = coverImage;
+          imagePreview.style.display = 'block';
+          imagePreview.querySelector('img').src = coverImage;
+          dropZone.style.display = 'none';
+        }
+        
+        pendingFileData = {
+          type: 'epub',
+          data: arrayBuffer,
+          fileName: file.name,
+          fileSize: file.size,
+          author: author
+        };
+        
+        // 显示文件信息
+        showFileInfo('book', file.name, file.size);
+        loadingStatus.textContent = '✓ EPUB 解析成功';
+      } catch (e) {
+        console.error('解析 EPUB 失败:', e);
+        loadingStatus.textContent = '解析失败';
+      }
+    }
+
+    async function processAudioFile(file) {
+      loadingStatus.textContent = '正在处理音频...';
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const title = file.name.replace(/\.[^.]+$/, '');
+        
+        titleInput.value = title;
+        pendingFileData = {
+          type: 'audio',
+          data: arrayBuffer,
+          fileName: file.name,
+          fileSize: file.size
+        };
+        
+        showFileInfo('audio', file.name, file.size);
+        loadingStatus.textContent = '✓ 音频处理完成';
+      } catch (e) {
+        console.error('处理音频失败:', e);
+        loadingStatus.textContent = '处理失败';
+      }
+    }
+
+    function showFileInfo(type, name, size) {
+      const icon = type === 'book' 
+        ? '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13"/></svg>'
+        : '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z"/></svg>';
+      
+      const sizeStr = size < 1024 * 1024 
+        ? (size / 1024).toFixed(1) + ' KB'
+        : (size / 1024 / 1024).toFixed(1) + ' MB';
+      
+      // 更新拖拽区域显示文件信息
+      dropZone.classList.add('has-file');
+      dropZone.innerHTML = `
+        <div class="file-icon" style="background: #d1fae5;">${icon}</div>
+        <div class="file-drop-text" style="color: #059669;">${name}</div>
+        <div class="file-drop-hint">${sizeStr} · 点击更换文件</div>
+        <input type="file" id="fileInput" accept=".epub,audio/*" multiple style="display: none;">
+      `;
+    }
+
+    // 1. 窗口显示时自动执行
+    ipcRenderer.on('window-shown', async () => {
+      resetForm();
+      try {
+        const text = await ipcRenderer.invoke('read-clipboard');
+        if (text && (text.startsWith('http') || text.startsWith('www'))) {
+          urlInput.value = text;
+          fetchMetadata(text);
+        }
+        urlInput.focus();
+        urlInput.select(); // 全选链接，方便直接替换
+      } catch (e) { }
+    });
+
+    // 2. 监听输入
+    urlInput.addEventListener('input', () => {
+      const url = urlInput.value.trim();
+      if (!url) return;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchMetadata(url), 500);
+    });
+
+    // 3. 抓取元数据
+    async function fetchMetadata(url) {
+      if (!url.startsWith('http')) return;
+
+      // 自动检测模式
+      autoDetectMode(url);
+      
+      loadingStatus.textContent = '正在获取信息...';
+      try {
+        const data = await ipcRenderer.invoke('fetch-metadata', url);
+        if (data.title) titleInput.value = data.title;
+        if (data.image) {
+          currentImage = data.image;
+          imagePreview.style.display = 'block';
+          imagePreview.querySelector('img').src = data.image;
+          // 有图片时隐藏拖拽区域
+          dropZone.style.display = 'none';
+        } else {
+          imagePreview.style.display = 'none';
+          dropZone.style.display = '';
+        }
+        loadingStatus.textContent = '✓ 获取成功';
+      } catch (e) {
+        loadingStatus.textContent = '';
+      }
+    }
+
+    // 4. 快捷键处理
+    document.addEventListener('keydown', async (e) => {
+      // Cmd+Enter 打开收藏库
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        ipcRenderer.send('open-dashboard');
+        ipcRenderer.send('hide-capture-window');
+        return;
+      }
+
+      // Enter 键保存（备注框中允许 Shift+Enter 换行）
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        saveAndClose();
+      }
+
+      if (e.key === 'Escape') {
+        ipcRenderer.send('hide-capture-window');
+      }
+    });
+
+    // 置顶按钮
+    const pinBtn = document.getElementById('pinBtn');
+    pinBtn.addEventListener('click', async () => {
+      try {
+        const isPinned = await ipcRenderer.invoke('toggle-capture-always-on-top');
+        pinBtn.classList.toggle('active', isPinned);
+        pinBtn.title = isPinned ? '取消置顶' : '置顶窗口';
+      } catch (e) {
+        console.error('切换置顶失败:', e);
+      }
+    });
+
+    const openDashboardBtn = document.getElementById('openDashboardBtn');
+    const saveBtn = document.getElementById('saveBtn');
+
+    // 打开主界面
+    openDashboardBtn.addEventListener('click', () => {
+      ipcRenderer.send('open-dashboard');
+      ipcRenderer.send('hide-capture-window');
+    });
+
+    // 保存按钮点击
+    saveBtn.addEventListener('click', saveAndClose);
+
+    async function saveAndClose() {
+      // 允许没有 URL 但有文件的情况
+      if (!urlInput.value && !pendingFileData) return;
+
+      loadingStatus.textContent = '保存中...';
+
+      const newItem = {
+        id: Date.now().toString(),
+        url: urlInput.value || '',
+        title: titleInput.value || urlInput.value || '未命名',
+        category: categoryInput.value,
+        note: noteInput.value,
+        image: currentImage,
+        platform: getPlatformFromMode(modeInput.value, urlInput.value),
+        createdAt: new Date().toISOString(),
+        pinned: false
+      };
+      
+      // 如果有文件数据，添加文件相关字段
+      if (pendingFileData) {
+        if (pendingFileData.type === 'epub') {
+          newItem.hasEpubFile = true;
+          newItem.author = pendingFileData.author;
+        } else if (pendingFileData.type === 'audio') {
+          newItem.hasAudioFile = true;
+        }
+        newItem.fileName = pendingFileData.fileName;
+        newItem.fileSize = pendingFileData.fileSize;
+        // 将文件数据转为 base64 存储
+        newItem.fileData = arrayBufferToBase64(pendingFileData.data);
+      }
+
+      await ipcRenderer.invoke('save-item', newItem);
+
+      // 通知主窗口刷新
+      ipcRenderer.send('item-saved');
+
+      // 隐藏自己
+      ipcRenderer.send('hide-capture-window');
+      resetForm();
+    }
+
+    function resetForm() {
+      urlInput.value = '';
+      titleInput.value = '';
+      noteInput.value = '';
+      modeInput.value = 'video';
+      imagePreview.style.display = 'none';
+      currentImage = '';
+      loadingStatus.textContent = '';
+      pendingFileData = null;
+      // 重置拖拽区域
+      dropZone.style.display = '';
+      dropZone.classList.remove('has-file');
+      dropZone.innerHTML = `
+        <div class="file-drop-icon">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13"/>
+          </svg>
+        </div>
+        <div class="file-drop-text">拖拽文件到这里添加</div>
+        <div class="file-drop-hint">支持 EPUB、MP3、WAV 等</div>
+        <input type="file" id="fileInput" accept=".epub,audio/*" multiple style="display: none;">
+      `;
+    }
+
+    // 根据链接自动检测模式
+    function autoDetectMode(url) {
+      if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('bilibili.com')) {
+        modeInput.value = 'video';
+      } else if (url.includes('arxiv.org') || url.includes('scholar.google')) {
+        modeInput.value = 'paper';
+      } else {
+        modeInput.value = 'web';
+      }
+    }
+
+    function getPlatformFromMode(mode, url) {
+      if (mode === 'book') return 'Book';
+      if (mode === 'paper') return 'Paper';
+      if (mode === 'audio') return 'Audio';
+      if (mode === 'web') return 'Web';
+      // video 模式下根据 URL 细分
+      if (url?.includes('youtube.com') || url?.includes('youtu.be')) return 'YouTube';
+      if (url?.includes('bilibili.com')) return 'Bilibili';
+      return 'Video';
+    }
+
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+  </script>
+</body>
+
+</html>
