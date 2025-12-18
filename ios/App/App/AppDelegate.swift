@@ -44,12 +44,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         guard !isMonitoringStarted else { return }
         isMonitoringStarted = true
         
+        print("🔷 开始设置剪贴板监听...")
+        
         // 注册 Darwin 通知监听剪贴板变化
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         
         // 监听剪贴板变化通知
         let notificationName = "com.apple.pasteboard.changed" as CFString
         CFNotificationCenterAddObserver(center, nil, PasteboardDidChange, notificationName, nil, .deliverImmediately)
+        print("🔷 Darwin 通知监听已注册")
         
         // 调用私有 API 开始监听剪贴板变化
         #if !targetEnvironment(simulator)
@@ -58,13 +61,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         
         if let PBServerConnection = NSClassFromString(className) as AnyObject? {
             _ = PBServerConnection.perform(NSSelectorFromString(beginListeningSelector))
-            print("剪贴板监听已启动")
+            print("🔷 私有 API 剪贴板监听已启动")
+        } else {
+            print("❌ 私有 API 类不存在")
         }
+        #else
+        print("⚠️ 模拟器环境，跳过私有 API")
         #endif
         
         // 同时监听系统通知（备用）
         let changedNotification = ["changed", "pasteboard", "apple", "com"].reversed().joined(separator: ".")
         NotificationCenter.default.addObserver(self, selector: #selector(pasteboardDidUpdate), name: Notification.Name(changedNotification), object: nil)
+        print("🔷 系统通知监听已注册")
     }
     
     @objc func pasteboardDidUpdate() {
@@ -157,7 +165,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     func applicationDidEnterBackground(_ application: UIApplication) {
         // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits. 
     }
 
     func applicationWillEnterForeground(_ application: UIApplication) {
@@ -169,24 +177,48 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // 每次激活时都检查剪贴板（不依赖后台监听）
         hasPendingClipboard = false
         
-        if let content = UIPasteboard.general.string {
-            print("🟡 剪贴板内容: \(content.prefix(30))...")
-            print("🟡 上次内容: \(lastPasteboardContent?.prefix(30) ?? "nil")...")
-            
-            // 检查是否是链接
-            let isUrl = content.hasPrefix("http://") || content.hasPrefix("https://")
-            
-            if isUrl && content != lastPasteboardContent {
-                lastPasteboardContent = content
-                print("🟡 检测到新链接，开始处理")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.sendClipboardToWebView(content)
+        // iOS 14+: 先用 detectPatterns 检测是否有 URL，避免不必要的隐私弹窗
+        if #available(iOS 14.0, *) {
+            UIPasteboard.general.detectPatterns(for: [.probableWebURL]) { result in
+                switch result {
+                case .success(let patterns):
+                    if patterns.contains(.probableWebURL) {
+                        // 只有检测到 URL 时才读取剪贴板
+                        DispatchQueue.main.async {
+                            self.checkAndProcessClipboard()
+                        }
+                    } else {
+                        print("🟡 剪贴板不包含 URL，跳过")
+                    }
+                case .failure(let error):
+                    print("❌ detectPatterns 失败: \(error)")
                 }
-            } else if !isUrl {
-                print("🟡 不是链接，跳过")
-            } else {
-                print("🟡 链接相同，跳过")
             }
+        } else {
+            // iOS 13 及以下直接读取
+            checkAndProcessClipboard()
+        }
+    }
+    
+    private func checkAndProcessClipboard() {
+        guard let content = UIPasteboard.general.string else { return }
+        
+        print("🟡 剪贴板内容: \(content.prefix(30))...")
+        print("🟡 上次内容: \(lastPasteboardContent?.prefix(30) ?? "nil")...")
+        
+        // 检查是否是链接
+        let isUrl = content.hasPrefix("http://") || content.hasPrefix("https://")
+        
+        if isUrl && content != lastPasteboardContent {
+            lastPasteboardContent = content
+            print("🟡 检测到新链接，开始处理")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.sendClipboardToWebView(content)
+            }
+        } else if !isUrl {
+            print("🟡 不是链接，跳过")
+        } else {
+            print("🟡 链接相同，跳过")
         }
     }
     

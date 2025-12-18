@@ -2,16 +2,17 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.kexin.infofilter',
-  appName: '信息过滤器',
+  appName: 'flow',
   webDir: 'www',
   ios: {
-    contentInset: 'always',
-    allowsLinkPreview: false
+    contentInset: 'automatic',
+    allowsLinkPreview: false,
+    scrollEnabled: false
   },
   plugins: {
     StatusBar: {
       style: 'dark',
-      overlaysWebView: true
+      overlaysWebView: false
     }
   }
 };
