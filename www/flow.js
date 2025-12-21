@@ -1193,7 +1193,35 @@
       }
     }
     
-    // 尝试 Netlify Functions API（支持 Twitter/X 和其他网站）
+    // Twitter/X 使用 jf.x.com 获取嵌入卡片预览图
+    if (url.includes('twitter.com') || url.includes('x.com')) {
+      const statusId = url.match(/status\/(\d+)/)?.[1];
+      const usernameMatch = url.match(/(?:twitter\.com|x\.com)\/([^\/\?]+)/);
+      const fallbackTitle = usernameMatch ? `@${usernameMatch[1]} 的推文` : 'Twitter 帖子';
+      
+      if (statusId) {
+        const cardImage = `https://jf.x.com/images/post/${statusId}.png`;
+        
+        // 尝试用 Netlify API 获取标题
+        try {
+          const apiUrl = `https://info-filter.netlify.app/.netlify/functions/fetch-metadata?url=${encodeURIComponent(url)}`;
+          const res = await fetch(apiUrl);
+          if (res.ok) {
+            const data = await res.json();
+            return {
+              title: data.title || fallbackTitle,
+              image: cardImage
+            };
+          }
+        } catch (e) {
+          console.log('Netlify API 不可用');
+        }
+        
+        return { title: fallbackTitle, image: cardImage };
+      }
+    }
+
+    // 尝试 Netlify Functions API（支持其他网站）
     try {
       const apiUrl = `https://info-filter.netlify.app/.netlify/functions/fetch-metadata?url=${encodeURIComponent(url)}`;
       const res = await fetch(apiUrl);
