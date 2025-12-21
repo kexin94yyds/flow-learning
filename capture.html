@@ -408,6 +408,13 @@
     let debounceTimer;
     let pendingFileData = null;
 
+    // 提取 YouTube 视频 ID
+    function extractYouTubeId(url) {
+      const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+      const match = url.match(regex);
+      return match ? match[1] : null;
+    }
+
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
 
@@ -822,15 +829,41 @@
       // 自动检测模式
       autoDetectMode(url);
       
+      // YouTube 快速路径：立即显示缩略图，异步获取标题
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        const videoId = extractYouTubeId(url);
+        if (videoId) {
+          // 使用 sddefault (640x480)，所有视频都支持
+          currentImage = `https://img.youtube.com/vi/${videoId}/sddefault.jpg`;
+          imagePreview.style.display = 'block';
+          imagePreview.querySelector('img').src = currentImage;
+          dropZone.style.display = 'none';
+          loadingStatus.textContent = '正在获取标题...';
+          
+          // 异步获取标题
+          fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+              if (data?.title) titleInput.value = data.title;
+              loadingStatus.textContent = '✓ 获取成功';
+            })
+            .catch(() => {
+              loadingStatus.textContent = '✓ 获取成功';
+            });
+          return;
+        }
+      }
+      
+      // 其他网站：走原有流程
       loadingStatus.textContent = '正在获取信息...';
       try {
         const data = await ipcRenderer.invoke('fetch-metadata', url);
         if (data.title) titleInput.value = data.title;
+        
         if (data.image) {
           currentImage = data.image;
           imagePreview.style.display = 'block';
           imagePreview.querySelector('img').src = data.image;
-          // 有图片时隐藏拖拽区域
           dropZone.style.display = 'none';
         } else {
           imagePreview.style.display = 'none';

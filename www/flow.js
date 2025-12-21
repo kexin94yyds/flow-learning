@@ -1192,8 +1192,22 @@
         };
       }
     }
+    
+    // 尝试 Netlify Functions API（支持 Twitter/X 和其他网站）
+    try {
+      const apiUrl = `https://info-filter.netlify.app/.netlify/functions/fetch-metadata?url=${encodeURIComponent(url)}`;
+      const res = await fetch(apiUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.title || data.image) {
+          return data;
+        }
+      }
+    } catch (e) {
+      console.log('Netlify API 不可用:', e);
+    }
 
-    // 尝试本地服务器 API（用于其他网站）
+    // 尝试本地服务器 API（备用）
     try {
       const apiUrl = `http://localhost:3000/api/metadata?url=${encodeURIComponent(url)}`;
       const res = await fetch(apiUrl);
@@ -1203,8 +1217,14 @@
     } catch (e) {
       console.log('本地 API 不可用');
     }
-
-    return { title: '', image: '' };
+    
+    // 回退：使用域名作为标题
+    try {
+      const urlObj = new URL(url);
+      return { title: urlObj.hostname, image: '' };
+    } catch (e) {
+      return { title: '', image: '' };
+    }
   }
 
   // EPUB 临时数据
@@ -2119,6 +2139,146 @@
   }
 
               
+  // ========== iOS 剪贴板处理 ==========
+  
+  // 打开 capture 弹窗并填入链接
+  function openCaptureWithUrl(url) {
+    const captureModal = document.getElementById('captureModal');
+    const captureUrlInput = document.getElementById('captureUrlInput');
+    const captureTitleInput = document.getElementById('captureTitleInput');
+    const captureModeSelect = document.getElementById('captureModeSelect');
+    
+    if (!captureModal || !captureUrlInput) {
+      console.log('❌ capture 弹窗元素不存在');
+      return;
+    }
+    
+    // 填入链接
+    captureUrlInput.value = url;
+    
+    // 根据链接自动选择模式
+    if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('bilibili.com')) {
+      captureModeSelect.value = 'video';
+    } else {
+      captureModeSelect.value = 'web';
+    }
+    
+    // 打开弹窗
+    captureModal.classList.add('show');
+    
+    // 自动获取标题
+    fetchMetadata(url).then(metadata => {
+      if (metadata.title && captureTitleInput) {
+        captureTitleInput.value = metadata.title;
+      }
+    }).catch(e => console.log('获取标题失败:', e));
+  }
+  
+  // 暴露给 iOS 原生调用的函数
+  window.handleClipboardFromNative = function(content) {
+    console.log('📋 收到原生剪贴板内容:', content);
+    
+    // 检查是否是链接
+    if (content && (content.startsWith('http://') || content.startsWith('https://'))) {
+      openCaptureWithUrl(content);
+    }
+  };
+  
+  // 绑定 capture 弹窗事件
+  function bindCaptureModalEvents() {
+    const captureModal = document.getElementById('captureModal');
+    const captureModalClose = document.getElementById('captureModalClose');
+    const captureCancelBtn = document.getElementById('captureCancelBtn');
+    const captureSaveBtn = document.getElementById('captureSaveBtn');
+    
+    if (captureModalClose) {
+      captureModalClose.addEventListener('click', () => {
+        captureModal.classList.remove('show');
+      });
+    }
+    if (captureCancelBtn) {
+      captureCancelBtn.addEventListener('click', () => {
+        captureModal.classList.remove('show');
+      });
+    }
+    if (captureSaveBtn) {
+      captureSaveBtn.addEventListener('click', saveCaptureContent);
+    }
+    if (captureModal) {
+      captureModal.addEventListener('click', (e) => {
+        if (e.target === captureModal) captureModal.classList.remove('show');
+      });
+    }
+  }
+  
+  // 保存 capture 内容
+  async function saveCaptureContent() {
+    const captureModal = document.getElementById('captureModal');
+    const url = document.getElementById('captureUrlInput')?.value.trim();
+    const title = document.getElementById('captureTitleInput')?.value.trim();
+    const mode = document.getElementById('captureModeSelect')?.value || 'web';
+    const note = document.getElementById('captureNoteInput')?.value.trim() || '';
+    
+    if (!url) {
+      alert('请输入链接');
+      return;
+    }
+    
+    // 根据模式设置 platform
+    const platformMap = {
+      video: url.includes('youtube') ? 'YouTube' : url.includes('bilibili') ? 'Bilibili' : 'Video',
+      book: 'Book',
+      paper: 'Paper',
+      audio: 'Audio',
+      web: 'Web'
+    };
+    
+    const content = {
+      id: generateId(),
+      title: title || '加载中...',
+      url,
+      image: '',
+      note,
+      createdAt: Date.now()
+    };
+    
+    if (!flowData.contents[mode]) {
+      flowData.contents[mode] = [];
+    }
+    flowData.contents[mode].push(content);
+    
+    // 关闭弹窗
+    captureModal.classList.remove('show');
+    
+    // 切换到对应模式并渲染
+    flowData.currentMode = mode;
+    saveData();
+    render();
+    
+    // 异步获取元数据更新标题和图片
+    try {
+      const metadata = await fetchMetadata(url);
+      if (metadata.title && !title) content.title = metadata.title;
+      if (metadata.image) content.image = metadata.image;
+      saveData();
+      render();
+    } catch (e) {
+      console.log('获取元数据失败:', e);
+    }
+    
+    // 清空输入
+    document.getElementById('captureUrlInput').value = '';
+    document.getElementById('captureTitleInput').value = '';
+    document.getElementById('captureNoteInput').value = '';
+  }
+  
+  // 在 init 中绑定事件
+  const originalInit = init;
+  init = async function() {
+    await originalInit();
+    bindCaptureModalEvents();
+  };
+  
   // 启动
   init();
 })();

@@ -517,26 +517,70 @@ ipcMain.handle('fetch-metadata', async (event, url) => {
       }
     }
 
-    // Special handling for Twitter/X
+    // Special handling for Twitter/X - 使用 fxtwitter API
     if (url.includes('twitter.com') || url.includes('x.com')) {
-      // Use a bot User-Agent to get OpenGraph tags
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'
-        },
-        timeout: 5000
-      });
-      const html = await res.text();
-      const $ = cheerio.load(html);
+      // 从 URL 提取用户名作为备用标题
+      const usernameMatch = url.match(/(?:twitter\.com|x\.com)\/([^\/\?]+)/);
+      const fallbackTitle = usernameMatch ? `@${usernameMatch[1]} 的推文` : 'Twitter 帖子';
+      
+      try {
+        // 优先使用 fxtwitter API 获取推文数据
+        const statusId = url.match(/status\/(\d+)/)?.[1];
+        if (statusId) {
+          // 使用 jf.x.com 获取推文嵌入卡片预览图
+          const cardImage = `https://jf.x.com/images/post/${statusId}.png`;
+          
+          const apiUrl = `https://api.fxtwitter.com/status/${statusId}`;
+          const fxRes = await fetch(apiUrl, { timeout: 5000 });
+          if (fxRes.ok) {
+            const data = await fxRes.json();
+            if (data.tweet) {
+              const tweet = data.tweet;
+              return {
+                title: (tweet.text || `${tweet.author?.name || ''} 的推文`).trim().substring(0, 100),
+                image: cardImage
+              };
+            }
+          }
+          // 即使 API 失败，也尝试使用卡片图片
+          return {
+            title: fallbackTitle,
+            image: cardImage
+          };
+        }
+      } catch (e) {
+        console.error('fxtwitter API error:', e);
+      }
+      
+      // 备选：原有的 UA 抓取逻辑
+      try {
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'
+          },
+          timeout: 5000
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
 
-      const title = $('meta[property="og:title"]').attr('content') ||
-        $('meta[name="twitter:title"]').attr('content') ||
-        $('title').text() || '';
+        let title = $('meta[property="og:title"]').attr('content') ||
+          $('meta[name="twitter:title"]').attr('content') ||
+          $('title').text() || '';
+        
+        if (!title || title.trim() === 'X' || title.trim() === 'Twitter') {
+          title = fallbackTitle;
+        }
 
-      const image = $('meta[property="og:image"]').attr('content') ||
-        $('meta[name="twitter:image"]').attr('content') || '';
+        const image = $('meta[property="og:image"]').attr('content') ||
+          $('meta[name="twitter:image"]').attr('content') || '';
+        
+        const finalImage = image.includes('default') || image.includes('abs.twimg.com/rweb/ssr') ? '' : image;
 
-      return { title: title.trim(), image };
+        return { title: title.trim(), image: finalImage };
+      } catch (e) {
+        console.error('Twitter fetch error:', e);
+        return { title: fallbackTitle, image: '' };
+      }
     }
 
     const res = await fetch(url, {
